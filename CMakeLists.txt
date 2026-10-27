@@ -39,5 +39,9 @@ target_include_directories(imgui_lib PUBLIC
   ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui_lib PUBLIC glfw)
 
+find_package(FFMPEG REQUIRED)
+
 add_executable(MapHappy src/main.cpp)
-target_link_libraries(MapHappy PRIVATE glfw glad imgui_lib)
+target_include_directories(MapHappy PRIVATE ${FFMPEG_INCLUDE_DIRS})
+target_link_directories(MapHappy PRIVATE ${FFMPEG_LIBRARY_DIRS})
+target_link_libraries(MapHappy PRIVATE glfw glad imgui_lib ${FFMPEG_LIBRARIES})

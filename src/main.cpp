@@ -6,6 +6,9 @@
 #include "Homography.h"
 #include <cstdio>
 #include <cmath>
+extern "C" {
+#include <libavformat/avformat.h>
+}
 
 // ---------------------------------------------------------------------------
 // Shaders. GLSL lives in C++ raw strings so there are no extra files to ship.
@@ -132,6 +135,7 @@ static RenderTarget makeRenderTarget(int w, int h) {
 // ---------------------------------------------------------------------------
 int main() {
     if (!glfwInit()) { std::fprintf(stderr, "GLFW init failed\n"); return 1; }
+    std::printf("FFmpeg libavformat version: %u\n", avformat_version());
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
