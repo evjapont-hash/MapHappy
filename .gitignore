@@ -1,3 +1,7 @@
 build/
 .vs/
 imgui.ini
+*.mp4
+*.mov
+*.mkv
+*.webm

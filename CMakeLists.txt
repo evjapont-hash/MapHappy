@@ -41,7 +41,7 @@ target_link_libraries(imgui_lib PUBLIC glfw)
 
 find_package(FFMPEG REQUIRED)
 
-add_executable(MapHappy src/main.cpp)
+add_executable(MapHappy src/main.cpp src/VideoDecoder.cpp)
 target_include_directories(MapHappy PRIVATE ${FFMPEG_INCLUDE_DIRS})
 target_link_directories(MapHappy PRIVATE ${FFMPEG_LIBRARY_DIRS})
 target_link_libraries(MapHappy PRIVATE glfw glad imgui_lib ${FFMPEG_LIBRARIES})
