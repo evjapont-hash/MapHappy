@@ -35,8 +35,8 @@ public:
     bool isOpen() const { return decoder_.isOpen(); }
     void setLoop(bool loop) { decoder_.setLoop(loop); }
     double time() const { return clock_; }
-    int width() const { return decoder_.width(); }
-    int height() const { return decoder_.height(); }
+    int width() const override { return decoder_.width(); }
+    int height() const override { return decoder_.height(); }
     double fps() const { return decoder_.fps(); }
     const std::string& path() const { return path_; }
     const std::string& error() const { return error_; }

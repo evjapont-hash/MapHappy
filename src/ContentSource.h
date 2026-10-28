@@ -11,4 +11,6 @@ public:
     virtual ~ContentSource() = default;
     virtual void   update(double dt) = 0;       // advance by dt seconds and refresh the texture
     virtual GLuint texture() const = 0;
+    virtual int    width()   const = 0;
+    virtual int    height()  const = 0;
 };

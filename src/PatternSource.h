@@ -65,6 +65,8 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
     GLuint texture() const override { return target_.tex; }
+    int    width()   const override { return target_.w; }
+    int    height()  const override { return target_.h; }
 
 private:
     GLuint prog_ = 0, vao_ = 0;
