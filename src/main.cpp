@@ -5,6 +5,7 @@
 #include "imgui_impl_opengl3.h"
 #include "Editor.h"
 #include "GLUtil.h"
+#include "Params.h"
 #include "Project.h"
 #include "Renderer.h"
 #include <cstdio>
@@ -41,6 +42,11 @@ static void run(GLFWwindow* window) {
         editor.drawUI();
         ImGui::Render();
 
+        project.transport.update(dt, project.timeline.length);       // the master clock
+        if (project.transport.playing || project.timelineDirty) {    // timeline writes its values into the project
+            applyTimeline(project);
+            project.timelineDirty = false;
+        }
         project.media.update(dt);                 // advance generators and video
         renderer.renderStage(stageRT, project);   // draw all surfaces into the stage texture
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "ConductorPanel.h"
 #include "GLUtil.h"
 #include "Project.h"
 #include "imgui.h"
@@ -46,7 +47,9 @@ inline void applyTheme() {
 // The whole editor UI: toolbar, left panel (Media / Surfaces), Input + Stage views, Conductor area.
 class Editor {
 public:
-    Editor(Project& p, RenderTarget& stage) : proj_(p), stage_(stage) { pathBuf_[0] = '\0'; }
+    Editor(Project& p, RenderTarget& stage) : proj_(p), stage_(stage), conductor_(p) { pathBuf_[0] = '\0'; }
+
+    const ConductorPanel& conductor() const { return conductor_; }
 
     // Called when a file is dropped on the window.
     void onFileDropped(const std::string& path) { addVideo(path, true); }
@@ -77,7 +80,7 @@ public:
             drawStagePanel(ImVec2(centerX, centerY), ImVec2(centerW, centerH));
         }
 
-        drawConductorPlaceholder(ImVec2(centerX, centerY + centerH), ImVec2(centerW, bottomH));
+        conductor_.draw(ImVec2(centerX, centerY + centerH), ImVec2(centerW, bottomH));
     }
 
     // Call once per frame AFTER the UI has been drawn. Changes that delete GPU textures
@@ -433,14 +436,6 @@ private:
         ImGui::End();
     }
 
-    void drawConductorPlaceholder(ImVec2 pos, ImVec2 size) {
-        ImGui::SetNextWindowPos(pos);
-        ImGui::SetNextWindowSize(size);
-        ImGui::Begin("Conductor", nullptr, kPanel);
-        ImGui::TextDisabled("Timeline, audio track and cues arrive in the next steps.");
-        ImGui::End();
-    }
-
     // ------------------------------------------------------------------ state
     Project&      proj_;
     RenderTarget& stage_;
@@ -450,5 +445,6 @@ private:
     char          pathBuf_[512];
     std::string   status_;
     Drag          drag_;
+    ConductorPanel conductor_;
     std::vector<int> pendingRemoveMedia_;
 };

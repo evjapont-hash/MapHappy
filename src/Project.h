@@ -1,6 +1,7 @@
 #pragma once
 #include "MediaPool.h"
 #include "Surface.h"
+#include "Timeline.h"
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -11,6 +12,10 @@ struct Project {
     std::vector<Surface> surfaces;            // index 0 = front-most, like the list in the UI
     int selectedSurfaceId = 0;                // 0 = nothing selected
     int outW = 1920, outH = 1080;             // stage (projector) resolution
+
+    Timeline  timeline;                       // part of the show: tracks, clips, keyframes
+    Transport transport;                      // runtime playback state (not saved)
+    bool      timelineDirty = false;          // set when the playhead moves or the timeline is edited
 
     Surface* find(int id) {
         for (auto& s : surfaces) if (s.id == id) return &s;
@@ -55,6 +60,7 @@ struct Project {
         int i = indexOf(id);
         if (i < 0) return;
         surfaces.erase(surfaces.begin() + i);
+        timeline.removeTracksWithPrefix("surface/" + std::to_string(id) + "/");
         if (selectedSurfaceId == id) selectedSurfaceId = surfaces.empty() ? 0 : surfaces[std::min<size_t>(i, surfaces.size() - 1)].id;
     }
 
