@@ -1,4 +1,5 @@
 #pragma once
+#include "AudioTypes.h"
 #include "MediaPool.h"
 #include "Surface.h"
 #include "Timeline.h"
@@ -16,6 +17,34 @@ struct Project {
     Timeline  timeline;                       // part of the show: tracks, clips, keyframes
     Transport transport;                      // runtime playback state (not saved)
     bool      timelineDirty = false;          // set when the playhead moves or the timeline is edited
+
+    std::vector<AudioAsset> audioAssets;      // decoded songs; audio clips refer to them by id
+    std::string audioStatus;                  // "Loading ..." / error text shown in the Conductor (not saved)
+    bool        audioStatusIsError = false;
+
+    AudioAsset* findAsset(int id) {
+        for (auto& a : audioAssets) if (a.id == id) return &a;
+        return nullptr;
+    }
+    int addAudioAsset(AudioAsset&& a) {
+        a.id = nextAssetId_++;
+        audioAssets.push_back(std::move(a));
+        return audioAssets.back().id;
+    }
+    struct Placement { int trackId = 0, clipId = 0; };
+    // Puts a whole song on the first audio track (made if needed), at the playhead or the next free spot.
+    Placement placeAudio(int assetId) {
+        Placement p;
+        AudioAsset* a = findAsset(assetId);
+        if (!a) return p;
+        Track* tr = nullptr;
+        for (auto& t : timeline.tracks) if (t.kind == TrackKind::Audio) { tr = &t; break; }
+        if (!tr) tr = timeline.findTrack(timeline.addAudioTrack());
+        double start = Timeline::freeAudioStart(*tr, transport.time, a->duration());
+        p.trackId = tr->id;
+        p.clipId = timeline.addAudioClip(tr->id, assetId, start, a->duration(), 0.0);
+        return p;
+    }
 
     Surface* find(int id) {
         for (auto& s : surfaces) if (s.id == id) return &s;
@@ -77,6 +106,6 @@ struct Project {
     }
 
 private:
-    int nextSurfaceId_ = 1;
+    int nextSurfaceId_ = 1, nextAssetId_ = 1;
     int shapeCounter_[3] = {0, 0, 0};
 };

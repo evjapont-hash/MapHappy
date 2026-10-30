@@ -72,11 +72,47 @@ struct Clip {
     }
 };
 
+enum class TrackKind { Param, Audio };
+
+// A piece of a song placed on the timeline. The sound itself lives in the project's audio assets.
+struct AudioClip {
+    int         id = 0;
+    std::string name;
+    int         assetId = 0;
+    double      start = 0.0;          // timeline seconds
+    double      duration = 0.0;       // seconds of the file that play
+    double      offset = 0.0;         // seconds skipped at the start of the file
+    float       gain = 1.0f;
+    double end() const { return start + duration; }
+};
+
+struct Marker { int id = 0; double time = 0.0; };
+
 struct Track {
     int         id = 0;
-    std::string path;                 // which parameter this track drives, e.g. "surface/3/opacity"
+    TrackKind   kind = TrackKind::Param;
+    std::string name;                 // shown for audio tracks ("Audio-1")
+    std::string path;                 // which parameter this track drives, e.g. "surface/3/opacity" (audio: "audio/1")
     bool        muted = false;
-    std::vector<Clip> clips;          // sorted by start, never overlapping
+    std::vector<Clip> clips;          // parameter clips: sorted by start, never overlapping
+    std::vector<AudioClip> audioClips;  // audio clips: sorted by start, never overlapping
+
+    AudioClip* findAudioClip(int clipId) {
+        for (auto& c : audioClips) if (c.id == clipId) return &c;
+        return nullptr;
+    }
+    int indexOfAudioClip(int clipId) const {
+        for (size_t i = 0; i < audioClips.size(); i++) if (audioClips[i].id == clipId) return (int)i;
+        return -1;
+    }
+    double minStartForAudio(int clipId) const {
+        int i = indexOfAudioClip(clipId);
+        return (i > 0) ? audioClips[i - 1].end() : 0.0;
+    }
+    double maxEndForAudio(int clipId) const {
+        int i = indexOfAudioClip(clipId);
+        return (i >= 0 && i + 1 < (int)audioClips.size()) ? audioClips[i + 1].start : 1e18;
+    }
 
     Clip* findClip(int clipId) {
         for (auto& c : clips) if (c.id == clipId) return &c;
@@ -101,7 +137,7 @@ struct Track {
     //   between/after clips   -> the previous clip's final value, held
     // Returns false only if the track has no clips at all.
     bool evaluate(double time, float& out) const {
-        if (clips.empty()) return false;
+        if (kind != TrackKind::Param || clips.empty()) return false;
         const Clip* cur = &clips.front();
         for (const Clip& c : clips) { if (c.start <= time) cur = &c; else break; }
         out = cur->valueAtLocal(time - cur->start);
@@ -113,6 +149,8 @@ struct Transport {
     double time = 0.0;
     bool   playing = false;
     bool   loop = false;
+    bool   seeked = false;            // set by the UI when it moves the playhead; the audio clock follows
+    double avOffset = 0.0;            // seconds: audio clock = visual clock + avOffset (to line up sound and picture)
 
     void update(double dt, double length) {
         if (!playing) return;
@@ -139,6 +177,7 @@ inline std::string formatTimecode(double t, int fps = kTimelineFps) {
 class Timeline {
 public:
     std::vector<Track> tracks;
+    std::vector<Marker> markers;      // sorted by time; things snap to them
     double length = 60.0;             // seconds; grows as clips are added past the end
 
     Track* findTrack(int id) {
@@ -167,10 +206,77 @@ public:
 
     void extendTo(double t) { length = std::max(length, t + 5.0); }
 
+    // ---- audio
+    int addAudioTrack() {
+        Track t; t.id = nextTrackId_++; t.kind = TrackKind::Audio;
+        t.name = "Audio-" + std::to_string(++audioTrackCount_);
+        t.path = "audio/" + std::to_string(t.id);
+        tracks.push_back(std::move(t));
+        return tracks.back().id;
+    }
+    // Places a clip of an audio asset. Returns its id, or 0 if it would overlap another clip.
+    int addAudioClip(int trackId, int assetId, double start, double duration, double offset = 0.0) {
+        Track* tr = findTrack(trackId);
+        if (!tr || tr->kind != TrackKind::Audio || duration < 1.0 / kTimelineFps) return 0;
+        start = std::max(0.0, start);
+        for (const AudioClip& c : tr->audioClips)
+            if (start < c.end() - 1e-9 && start + duration > c.start + 1e-9) return 0;
+        AudioClip c;
+        c.id = nextClipId_++;
+        c.name = "Audio-clip-" + std::to_string(c.id);
+        c.assetId = assetId; c.start = start; c.duration = duration; c.offset = std::max(0.0, offset);
+        auto it = std::upper_bound(tr->audioClips.begin(), tr->audioClips.end(), c.start, [](double s, const AudioClip& x) { return s < x.start; });
+        tr->audioClips.insert(it, c);
+        extendTo(start + duration);
+        return c.id;
+    }
+    void removeAudioClip(int trackId, int clipId) {
+        if (Track* tr = findTrack(trackId))
+            tr->audioClips.erase(std::remove_if(tr->audioClips.begin(), tr->audioClips.end(), [clipId](const AudioClip& c) { return c.id == clipId; }), tr->audioClips.end());
+    }
+    static double freeAudioStart(const Track& tr, double desired, double duration) {
+        double s = desired;
+        bool moved = true;
+        while (moved) {
+            moved = false;
+            for (const AudioClip& c : tr.audioClips)
+                if (s < c.end() - 1e-9 && s + duration > c.start + 1e-9) { s = c.end(); moved = true; }
+        }
+        return s;
+    }
+    // Cuts an audio clip in two at a timeline time. Returns the new (right-hand) clip's id, or 0.
+    int splitAudioClip(int trackId, int clipId, double t) {
+        Track* tr = findTrack(trackId);
+        AudioClip* c = tr ? tr->findAudioClip(clipId) : nullptr;
+        if (!c || t <= c->start + 1.0 / kTimelineFps || t >= c->end() - 1.0 / kTimelineFps) return 0;
+        AudioClip right = *c;
+        right.id = nextClipId_++;
+        right.name = "Audio-clip-" + std::to_string(right.id);
+        right.start = t;
+        right.offset = c->offset + (t - c->start);
+        right.duration = c->end() - t;
+        c->duration = t - c->start;
+        auto it = std::upper_bound(tr->audioClips.begin(), tr->audioClips.end(), right.start, [](double s, const AudioClip& x) { return s < x.start; });
+        tr->audioClips.insert(it, right);
+        return right.id;
+    }
+
+    // ---- markers
+    int addMarker(double t) {
+        for (const Marker& m : markers) if (std::fabs(m.time - t) < 1.0 / kTimelineFps / 2) return m.id;     // already one here
+        Marker m; m.id = nextMarkerId_++; m.time = std::max(0.0, t);
+        auto it = std::upper_bound(markers.begin(), markers.end(), m.time, [](double s, const Marker& x) { return s < x.time; });
+        markers.insert(it, m);
+        return m.id;
+    }
+    void removeMarker(int id) {
+        markers.erase(std::remove_if(markers.begin(), markers.end(), [id](const Marker& m) { return m.id == id; }), markers.end());
+    }
+
     // New clip with two keyframes at `value`. Returns its id, or 0 if there is no room.
     int addClip(int trackId, double start, double duration, float value) {
         Track* tr = findTrack(trackId);
-        if (!tr || duration < 1.0 / kTimelineFps) return 0;
+        if (!tr || tr->kind != TrackKind::Param || duration < 1.0 / kTimelineFps) return 0;
         start = std::max(0.0, start);
         for (const Clip& c : tr->clips)
             if (start < c.end() - 1e-9 && start + duration > c.start + 1e-9) return 0;     // would overlap
@@ -189,7 +295,7 @@ public:
     // Copies a clip into the next free spot after it. A ghost copy shares the original's keyframes.
     int duplicateClip(int trackId, int clipId, bool ghost) {
         Track* tr = findTrack(trackId);
-        if (!tr) return 0;
+        if (!tr || tr->kind != TrackKind::Param) return 0;
         Clip* src = tr->findClip(clipId);
         if (!src) return 0;
         Clip c = *src;
@@ -226,5 +332,5 @@ private:
         auto it = std::upper_bound(tr.clips.begin(), tr.clips.end(), c.start, [](double s, const Clip& x) { return s < x.start; });
         tr.clips.insert(it, std::move(c));
     }
-    int nextTrackId_ = 1, nextClipId_ = 1;
+    int nextTrackId_ = 1, nextClipId_ = 1, nextMarkerId_ = 1, audioTrackCount_ = 0;
 };

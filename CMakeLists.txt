@@ -26,7 +26,13 @@ FetchContent_Declare(imgui
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
   GIT_TAG v1.91.9)
 
-FetchContent_MakeAvailable(glfw glad imgui)
+# Audio (a single header file)
+FetchContent_Declare(miniaudio
+  GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+  GIT_TAG 0.11.22
+  SOURCE_SUBDIR does_not_exist)
+
+FetchContent_MakeAvailable(glfw glad imgui miniaudio)
 
 add_library(imgui_lib STATIC
   ${imgui_SOURCE_DIR}/imgui.cpp
@@ -41,7 +47,7 @@ target_link_libraries(imgui_lib PUBLIC glfw)
 
 find_package(FFMPEG REQUIRED)
 
-add_executable(MapHappy src/main.cpp src/VideoDecoder.cpp)
-target_include_directories(MapHappy PRIVATE ${FFMPEG_INCLUDE_DIRS})
+add_executable(MapHappy src/main.cpp src/VideoDecoder.cpp src/Audio.cpp)
+target_include_directories(MapHappy PRIVATE ${FFMPEG_INCLUDE_DIRS} ${miniaudio_SOURCE_DIR})
 target_link_directories(MapHappy PRIVATE ${FFMPEG_LIBRARY_DIRS})
-target_link_libraries(MapHappy PRIVATE glfw glad imgui_lib ${FFMPEG_LIBRARIES})
+target_link_libraries(MapHappy PRIVATE glfw glad imgui_lib ${FFMPEG_LIBRARIES} ${CMAKE_DL_LIBS})

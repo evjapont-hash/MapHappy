@@ -1,4 +1,5 @@
 #pragma once
+#include "AudioLoader.h"
 #include "ConductorPanel.h"
 #include "GLUtil.h"
 #include "Project.h"
@@ -52,9 +53,13 @@ public:
     const ConductorPanel& conductor() const { return conductor_; }
 
     // Called when a file is dropped on the window.
-    void onFileDropped(const std::string& path) { addVideo(path, true); }
+    void onFileDropped(const std::string& path) {
+        if (isAudioPath(path)) startAudioLoad(path);
+        else addVideo(path, true);
+    }
 
     void drawUI() {
+        pollAudio();
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         const ImVec2 origin = vp->WorkPos, size = vp->WorkSize;
         const float toolbarH = 44.0f;
@@ -309,6 +314,30 @@ private:
         }
     }
 
+    // ------------------------------------------------------------------ audio loading
+    void startAudioLoad(const std::string& path) {
+        audioLoader_.start(path);
+        proj_.audioStatus = "Loading " + baseName(path) + "...";
+        proj_.audioStatusIsError = false;
+    }
+    // A finished song becomes an asset and lands on an audio track at the playhead.
+    void pollAudio() {
+        AudioLoader::Result r;
+        while (audioLoader_.poll(r)) {
+            if (r.ok) {
+                int id = proj_.addAudioAsset(std::move(r.asset));
+                Project::Placement pl = proj_.placeAudio(id);
+                if (pl.clipId) conductor_.selectAudioClip(pl.trackId, pl.clipId);
+                proj_.audioStatus.clear();
+                proj_.audioStatusIsError = false;
+            } else {
+                proj_.audioStatus = r.error;
+                proj_.audioStatusIsError = true;
+            }
+        }
+        if (audioLoader_.busy()) { proj_.audioStatus = "Loading " + audioLoader_.busyName() + "..."; proj_.audioStatusIsError = false; }
+    }
+
     // ------------------------------------------------------------------ Media tab
     void addVideo(const std::string& path, bool assignToSelected) {
         int id = proj_.media.addVideo(path, status_);
@@ -348,12 +377,12 @@ private:
         ImGui::Begin("Media", nullptr, kPanel);
 
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-        ImGui::TextWrapped("Drag a video file onto the window, or paste a path:");
+        ImGui::TextWrapped("Drag a video (or a WAV/MP3/FLAC song) onto the window, or paste a path:");
         ImGui::PopStyleColor();
         ImGui::SetNextItemWidth(-64.0f);
         ImGui::InputText("##path", pathBuf_, sizeof(pathBuf_));
         ImGui::SameLine();
-        if (ImGui::Button("Add")) addVideo(pathBuf_, true);
+        if (ImGui::Button("Add")) onFileDropped(pathBuf_);
         if (!status_.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error: %s", status_.c_str());
 
         ImGui::SeparatorText("Generators");
@@ -446,5 +475,6 @@ private:
     std::string   status_;
     Drag          drag_;
     ConductorPanel conductor_;
+    AudioLoader   audioLoader_;
     std::vector<int> pendingRemoveMedia_;
 };

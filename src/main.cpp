@@ -3,6 +3,8 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include "Audio.h"
+#include "AudioSync.h"
 #include "Editor.h"
 #include "GLUtil.h"
 #include "Params.h"
@@ -25,6 +27,13 @@ static void run(GLFWwindow* window) {
     RenderTarget stageRT = makeRenderTarget(project.outW, project.outH);
     Editor editor(project, stageRT);
 
+    AudioEngine audio;                                    // the sound card; also the show's master clock
+    {
+        std::string err;
+        if (!audio.start(err)) std::fprintf(stderr, "Audio is off: %s\n", err.c_str());
+    }
+    std::shared_ptr<const MixSnapshot> lastMix;
+
     project.addSurface(Shape::Quad);     // start with one surface so there is something to see
     double lastTime = glfwGetTime();
 
@@ -42,7 +51,8 @@ static void run(GLFWwindow* window) {
         editor.drawUI();
         ImGui::Render();
 
-        project.transport.update(dt, project.timeline.length);       // the master clock
+        if (audio.available()) syncMixSnapshot(project, audio.mixer(), lastMix);
+        driveTransport(project.transport, audio.available() ? &audio.mixer() : nullptr, dt, project.timeline.length);   // the master clock
         if (project.transport.playing || project.timelineDirty) {    // timeline writes its values into the project
             applyTimeline(project);
             project.timelineDirty = false;
