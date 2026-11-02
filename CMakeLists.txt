@@ -32,7 +32,13 @@ FetchContent_Declare(miniaudio
   GIT_TAG 0.11.22
   SOURCE_SUBDIR does_not_exist)
 
-FetchContent_MakeAvailable(glfw glad imgui miniaudio)
+# JSON, for project files (a header-only library)
+FetchContent_Declare(nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3
+  SOURCE_SUBDIR does_not_exist)
+
+FetchContent_MakeAvailable(glfw glad imgui miniaudio nlohmann_json)
 
 add_library(imgui_lib STATIC
   ${imgui_SOURCE_DIR}/imgui.cpp
@@ -47,7 +53,7 @@ target_link_libraries(imgui_lib PUBLIC glfw)
 
 find_package(FFMPEG REQUIRED)
 
-add_executable(MapHappy src/main.cpp src/VideoDecoder.cpp src/Audio.cpp)
-target_include_directories(MapHappy PRIVATE ${FFMPEG_INCLUDE_DIRS} ${miniaudio_SOURCE_DIR})
+add_executable(MapHappy src/main.cpp src/VideoDecoder.cpp src/Audio.cpp src/ProjectIO.cpp src/PlatformFiles.cpp)
+target_include_directories(MapHappy PRIVATE ${FFMPEG_INCLUDE_DIRS} ${miniaudio_SOURCE_DIR} ${nlohmann_json_SOURCE_DIR}/include)
 target_link_directories(MapHappy PRIVATE ${FFMPEG_LIBRARY_DIRS})
 target_link_libraries(MapHappy PRIVATE glfw glad imgui_lib ${FFMPEG_LIBRARIES} ${CMAKE_DL_LIBS})

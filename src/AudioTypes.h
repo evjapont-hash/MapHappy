@@ -25,6 +25,8 @@ struct AudioAsset {
     std::vector<float> peakMin, peakMax;      // one pair per kPeakBlock frames, for drawing the waveform
     double bpm = 0.0;                         // 0 = unknown
     double beatOffset = 0.0;                  // seconds into the file where a beat lands
+    bool   missing = false;                   // the file couldn't be found or decoded (clips stay, silent, until relinked)
+    bool   loading = false;                   // being decoded in the background
     double duration() const { return buf ? buf->duration() : 0.0; }
 };
 

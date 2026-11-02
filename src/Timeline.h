@@ -206,6 +206,14 @@ public:
 
     void extendTo(double t) { length = std::max(length, t + 5.0); }
 
+    // The id counters, so a saved project keeps handing out fresh ids after it is loaded.
+    struct Counters { int track = 1, clip = 1, marker = 1, audioTrack = 0; };
+    Counters counters() const { return {nextTrackId_, nextClipId_, nextMarkerId_, audioTrackCount_}; }
+    void setCounters(const Counters& c) {
+        nextTrackId_ = std::max(nextTrackId_, c.track); nextClipId_ = std::max(nextClipId_, c.clip);
+        nextMarkerId_ = std::max(nextMarkerId_, c.marker); audioTrackCount_ = std::max(audioTrackCount_, c.audioTrack);
+    }
+
     // ---- audio
     int addAudioTrack() {
         Track t; t.id = nextTrackId_++; t.kind = TrackKind::Audio;

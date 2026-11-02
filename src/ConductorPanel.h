@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,8 @@ public:
     static constexpr float kLaneH = 64.0f, kAudioLaneH = 104.0f, kHeaderH = 16.0f, kRulerH = 38.0f, kNameW = 210.0f, kInspW = 250.0f;
 
     void selectAudioClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.audioClip = clipId; }
+    void resetSelection() { sel_ = Sel{}; drag_ = Drag{}; scrollT_ = 0.0; }
+    std::function<void(int)> onRelinkAudio;      // asked to find a missing song again (the editor shows the file dialog)
 
     void draw(ImVec2 pos, ImVec2 size) {
         ImGui::SetNextWindowPos(pos);
@@ -34,8 +37,9 @@ public:
         Transport& tr = proj_.transport;
         ImGuiIO& io = ImGui::GetIO();
 
-        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space, false)) tr.playing = !tr.playing;
-        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_M, false)) proj_.timeline.addMarker(tr.time);
+        const bool keysFree = !io.WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+        if (keysFree && ImGui::IsKeyPressed(ImGuiKey_Space, false)) tr.playing = !tr.playing;
+        if (keysFree && ImGui::IsKeyPressed(ImGuiKey_M, false)) proj_.timeline.addMarker(tr.time);
 
         drawTransportBar();
 
@@ -299,6 +303,8 @@ private:
         dl->AddRectFilled(ImVec2(x0, top), ImVec2(x1, hb), kSalmon);
         dl->PushClipRect(ImVec2(x0, top), ImVec2(std::max(x0, x1 - 4), hb), true);
         std::string title = a ? a->name : c.name;
+        if (a && a->missing) title += "  (file missing)";
+        else if (a && a->loading) title += "  (loading...)";
         dl->AddText(ImVec2(x0 + 4, top + 1), IM_COL32(40, 20, 20, 255), title.c_str());
         dl->PopClipRect();
 
@@ -778,6 +784,13 @@ private:
         AudioAsset* a = proj_.findAsset(c.assetId);
         ImGui::SeparatorText("Audio clip");
         ImGui::TextUnformatted(a ? a->name.c_str() : c.name.c_str());
+        if (a && a->missing) {
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Song file not found");
+            ImGui::TextDisabled("%s", a->path.c_str());
+            if (ImGui::Button("Relink song...") && onRelinkAudio) onRelinkAudio(a->id);
+        } else if (a && a->loading) {
+            ImGui::TextDisabled("Loading the song...");
+        }
         const double fileLen = a ? a->duration() : 1e9;
 
         double v = c.start;

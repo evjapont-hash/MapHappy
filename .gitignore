@@ -5,3 +5,5 @@ imgui.ini
 *.mov
 *.mkv
 *.webm
+*.maphappy.autosave
+*.tmp

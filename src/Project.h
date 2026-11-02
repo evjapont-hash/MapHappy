@@ -85,6 +85,28 @@ struct Project {
         s.in[2] = {0.5f + hx, 0.5f + hy}; s.in[3] = {0.5f - hx, 0.5f + hy};
     }
 
+    struct Counters { int surface = 1, asset = 1, shape[3] = {0, 0, 0}; };
+    Counters counters() const { Counters c; c.surface = nextSurfaceId_; c.asset = nextAssetId_; for (int i = 0; i < 3; i++) c.shape[i] = shapeCounter_[i]; return c; }
+    void setCounters(const Counters& c) {
+        nextSurfaceId_ = std::max(nextSurfaceId_, c.surface); nextAssetId_ = std::max(nextAssetId_, c.asset);
+        for (int i = 0; i < 3; i++) shapeCounter_[i] = std::max(shapeCounter_[i], c.shape[i]);
+    }
+
+    // Back to a blank project (keeps the built-in test pattern). Frees GPU textures, so call it between frames.
+    void resetToEmpty() {
+        surfaces.clear();
+        selectedSurfaceId = 0;
+        media.clearAllButPattern();
+        audioAssets.clear();
+        timeline = Timeline();
+        transport = Transport();
+        audioStatus.clear(); audioStatusIsError = false;
+        outW = 1920; outH = 1080;
+        nextSurfaceId_ = 1; nextAssetId_ = 1;
+        for (int& c : shapeCounter_) c = 0;
+        timelineDirty = true;
+    }
+
     void removeSurface(int id) {
         int i = indexOf(id);
         if (i < 0) return;

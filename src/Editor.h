@@ -1,6 +1,8 @@
 #pragma once
 #include "AudioLoader.h"
 #include "ConductorPanel.h"
+#include "FileBrowser.h"
+#include "ProjectIO.h"
 #include "GLUtil.h"
 #include "Project.h"
 #include "imgui.h"
@@ -48,20 +50,48 @@ inline void applyTheme() {
 // The whole editor UI: toolbar, left panel (Media / Surfaces), Input + Stage views, Conductor area.
 class Editor {
 public:
-    Editor(Project& p, RenderTarget& stage) : proj_(p), stage_(stage), conductor_(p) { pathBuf_[0] = '\0'; }
+    Editor(Project& p, RenderTarget& stage) : proj_(p), stage_(stage), conductor_(p) {
+        pathBuf_[0] = '\0';
+        settings_ = loadSettings();
+        conductor_.onRelinkAudio = [this](int assetId) { openRelinkAudio(assetId); };
+    }
 
     const ConductorPanel& conductor() const { return conductor_; }
 
-    // Called when a file is dropped on the window.
+    // Called when a file is dropped on the window (or chosen in the file dialog).
     void onFileDropped(const std::string& path) {
-        if (isAudioPath(path)) startAudioLoad(path);
+        if (lowerExtension(path) == "maphappy") requestOpenFile(path);
+        else if (isAudioPath(path)) startAudioLoad(path);
         else addVideo(path, true);
     }
 
+    // ---- project files
+    std::string windowTitle() const { return "MapHappy - " + (filePath_.empty() ? std::string("Untitled") : fileNameOf(filePath_)) + (dirty_ ? " *" : ""); }
+    bool dirty() const { return dirty_; }
+    const std::string& filePath() const { return filePath_; }
+    void markClean() { savedSnapshot_ = projectToJson(proj_, filePath_, true); dirty_ = false; }
+    void refreshDirtyNow() { dirty_ = projectToJson(proj_, filePath_, true) != savedSnapshot_; }
+    bool exitApproved() const { return exitApproved_; }
+    void requestExit()  { if (dirty_) askUnsaved(Pending::Exit, ""); else exitApproved_ = true; }
+    void requestNew()   { if (dirty_) askUnsaved(Pending::New, ""); else performPending(Pending::New, "", false); }
+    void requestOpenFile(const std::string& path) { if (dirty_) askUnsaved(Pending::Open, path); else performPending(Pending::Open, path, false); }
+    bool saveProject()  { if (filePath_.empty()) { openSaveAs(); return false; } return doSave(filePath_); }
+    // Writes a recovery copy next to the project (or in the app folder for an untitled one). Runs by itself every minute while there are unsaved changes.
+    void autosaveNow() { std::string err; writeTextFileAtomic(autosavePathFor(filePath_), projectToJson(proj_, filePath_, false), err); }
+    // Offer to bring back work from a crashed session. Call once at startup.
+    void startupRecovery() { if (autosaveIsNewer("")) { recoverPath_.clear(); wantRecover_ = true; } }
+
+    struct Rect { float x = 0, y = 0, w = 0, h = 0; bool valid = false; };   // where the views were drawn (used by tests)
+    Rect stageRect() const { return stageRect_; }
+    Rect inputRect() const { return inputRect_; }
+
     void drawUI() {
         pollAudio();
+        tickProjectState();
+        const float menuH = drawMenuBar();
+        handleShortcuts();
         const ImGuiViewport* vp = ImGui::GetMainViewport();
-        const ImVec2 origin = vp->WorkPos, size = vp->WorkSize;
+        const ImVec2 origin(vp->Pos.x, vp->Pos.y + menuH), size(vp->Size.x, vp->Size.y - menuH);
         const float toolbarH = 44.0f;
         const float leftW    = std::min(340.0f, size.x * 0.32f);
         const float bottomH  = std::max(120.0f, size.y * 0.26f);
@@ -86,6 +116,7 @@ public:
         }
 
         conductor_.draw(ImVec2(centerX, centerY + centerH), ImVec2(centerW, bottomH));
+        drawDialogs();
     }
 
     // Call once per frame AFTER the UI has been drawn. Changes that delete GPU textures
@@ -96,6 +127,18 @@ public:
             if (selectedMediaId_ == id) selectedMediaId_ = 0;
         }
         pendingRemoveMedia_.clear();
+
+        if (relinkMediaId_) {                                      // swapping a video's source frees its old texture
+            std::string err;
+            if (!proj_.media.relink(relinkMediaId_, relinkMediaPath_, err)) status_ = "Couldn't relink: " + err;
+            else status_.clear();
+            relinkMediaId_ = 0;
+        }
+        const Pending a = deferred_; deferred_ = Pending::None;
+        if (a == Pending::New)       newProject();
+        else if (a == Pending::Open) openProjectNow(deferredPath_);
+        else if (a == Pending::Exit) exitApproved_ = true;
+        if (deferredRecover_) { deferredRecover_ = false; recoverNow(); }
     }
 
 private:
@@ -314,6 +357,245 @@ private:
         }
     }
 
+
+    // ------------------------------------------------------------------ project files
+    enum class Pending { None, New, Open, Exit };
+    enum class FileAction { None, OpenProject, SaveProject, AddMedia, RelinkMedia, RelinkAudio };
+
+    float drawMenuBar() {
+        const float h = ImGui::GetFrameHeight();
+        if (ImGui::BeginMainMenuBar()) {
+            if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("New", "Ctrl+N")) requestNew();
+                if (ImGui::MenuItem("Open...", "Ctrl+O")) openOpenDialog();
+                if (ImGui::BeginMenu("Open Recent", !settings_.recent.empty())) {
+                    for (const std::string& r : settings_.recent)
+                        if (ImGui::MenuItem((fileNameOf(r) + "##" + r).c_str())) requestOpenFile(r);
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Save", "Ctrl+S")) saveProject();
+                if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) openSaveAs();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Add media...")) openAddMedia();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Exit")) requestExit();
+                ImGui::EndMenu();
+            }
+            // project name in the middle, a short message (e.g. "Saved") on the right
+            std::string name = filePath_.empty() ? std::string("Untitled") : fileNameOf(filePath_);
+            if (dirty_) name += " *";
+            const float w = ImGui::GetWindowWidth();
+            ImGui::SameLine(std::max(120.0f, (w - ImGui::CalcTextSize(name.c_str()).x) * 0.5f));
+            ImGui::TextDisabled("%s", name.c_str());
+            if (!toast_.empty() && ImGui::GetTime() < toastUntil_) {
+                ImGui::SameLine(std::max(120.0f, w - ImGui::CalcTextSize(toast_.c_str()).x - 16.0f));
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.0f), "%s", toast_.c_str());
+            }
+            ImGui::EndMainMenuBar();
+        }
+        return h;
+    }
+
+    void handleShortcuts() {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.WantTextInput || fileBrowser_.isOpen() || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) return;
+        if (!io.KeyCtrl) return;
+        if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) openSaveAs(); else saveProject(); }
+        else if (ImGui::IsKeyPressed(ImGuiKey_O, false)) openOpenDialog();
+        else if (ImGui::IsKeyPressed(ImGuiKey_N, false)) requestNew();
+    }
+
+    // Notices edits, and writes an autosave a minute after the project first has unsaved changes.
+    void tickProjectState() {
+        const double now = ImGui::GetTime();
+        if (now - lastDirtyCheck_ > 0.5) {
+            lastDirtyCheck_ = now;
+            dirty_ = projectToJson(proj_, filePath_, true) != savedSnapshot_;
+        }
+        if (!dirty_) { lastAutosave_ = now; return; }
+        if (now - lastAutosave_ > 60.0) { lastAutosave_ = now; autosaveNow(); }
+    }
+
+    void toast(const std::string& msg) { toast_ = msg; toastUntil_ = ImGui::GetTime() + 3.0; }
+    void showError(const std::string& msg) { errorText_ = msg; wantError_ = true; }
+
+    void rememberFile(const std::string& path) {
+        addRecentFile(settings_, path);
+        settings_.lastFolder = parentOf(path);
+        saveSettings(settings_);
+    }
+    std::string startFolder() const {
+        if (!filePath_.empty()) return parentOf(filePath_);
+        return settings_.lastFolder.empty() ? documentsDirectory() : settings_.lastFolder;
+    }
+
+    bool doSave(const std::string& path) {
+        std::string err;
+        if (!saveProjectToFile(proj_, path, err)) { showError("Couldn't save the project.\n" + err); return false; }
+        deleteAutosave(filePath_); deleteAutosave("");
+        filePath_ = path;
+        rememberFile(path);
+        markClean();
+        toast("Saved");
+        return true;
+    }
+
+    void openOpenDialog() { fileAction_ = FileAction::OpenProject; fileBrowser_.open(FileBrowser::Mode::Open, "Open project", {"maphappy"}, startFolder()); }
+    void openSaveAs() {
+        fileAction_ = FileAction::SaveProject;
+        fileBrowser_.open(FileBrowser::Mode::Save, "Save project as", {"maphappy"}, startFolder(), filePath_.empty() ? "Untitled" : fileNameOf(filePath_), "maphappy");
+    }
+    void openAddMedia() {
+        fileAction_ = FileAction::AddMedia;
+        fileBrowser_.open(FileBrowser::Mode::Open, "Add media", {"mp4", "mov", "m4v", "mkv", "webm", "avi", "wav", "mp3", "flac"}, startFolder());
+    }
+    void openRelinkMedia(int id) {
+        fileAction_ = FileAction::RelinkMedia; fileTarget_ = id;
+        MediaItem* m = proj_.media.find(id);
+        fileBrowser_.open(FileBrowser::Mode::Open, "Find the video", {"mp4", "mov", "m4v", "mkv", "webm", "avi"}, m && !m->path.empty() ? parentOf(m->path) : startFolder());
+    }
+    void openRelinkAudio(int id) {
+        fileAction_ = FileAction::RelinkAudio; fileTarget_ = id;
+        AudioAsset* a = proj_.findAsset(id);
+        fileBrowser_.open(FileBrowser::Mode::Open, "Find the song", {"wav", "mp3", "flac"}, a && !a->path.empty() ? parentOf(a->path) : startFolder());
+    }
+
+    void onFileChosen(const std::string& path) {
+        switch (fileAction_) {
+            case FileAction::OpenProject: requestOpenFile(path); break;
+            case FileAction::SaveProject:
+                if (doSave(path) && afterSave_ != Pending::None) { performPending(afterSave_, afterSavePath_, false); }
+                afterSave_ = Pending::None;
+                break;
+            case FileAction::AddMedia: onFileDropped(path); settings_.lastFolder = parentOf(path); saveSettings(settings_); break;
+            case FileAction::RelinkMedia: relinkMediaId_ = fileTarget_; relinkMediaPath_ = path; break;
+            case FileAction::RelinkAudio:
+                if (AudioAsset* a = proj_.findAsset(fileTarget_)) { a->path = path; a->missing = false; a->loading = true; audioLoader_.start(path, a->id); }
+                break;
+            default: break;
+        }
+    }
+
+    void askUnsaved(Pending a, const std::string& path) { pending_ = a; pendingPath_ = path; wantUnsaved_ = true; }
+    // `discard` = the user chose to throw away their unsaved changes, so the autosave of them goes too.
+    void performPending(Pending a, const std::string& path, bool discard) {
+        if (discard) { deleteAutosave(filePath_); deleteAutosave(""); }
+        deferred_ = a; deferredPath_ = path;
+    }
+
+    void resetUiAfterLoad() { conductor_.resetSelection(); selectedMediaId_ = 0; status_.clear(); }
+
+    void newProject() {
+        proj_.resetToEmpty();
+        proj_.addSurface(Shape::Quad);
+        filePath_.clear();
+        resetUiAfterLoad();
+        markClean();
+    }
+
+    void showWarnings(const std::vector<std::string>& w) { if (!w.empty()) { loadWarnings_ = w; wantWarnings_ = true; } }
+    void startAudioReloads(const std::vector<int>& ids) {
+        for (int id : ids) if (AudioAsset* a = proj_.findAsset(id)) audioLoader_.start(a->path, id);
+    }
+
+    void openProjectNow(const std::string& path) {
+        LoadReport rep;
+        if (!loadProjectFromFile(proj_, path, rep)) { showError("Couldn't open the project.\n" + rep.error); return; }   // the open project is untouched
+        filePath_ = path;
+        resetUiAfterLoad();
+        rememberFile(path);
+        startAudioReloads(rep.audioToLoad);
+        markClean();
+        showWarnings(rep.warnings);
+        if (autosaveIsNewer(path)) { recoverPath_ = path; wantRecover_ = true; }
+    }
+
+    void recoverNow() {
+        std::string text;
+        if (!readTextFile(autosavePathFor(recoverPath_), text)) { showError("Couldn't read the autosave."); return; }
+        LoadReport rep;
+        const std::string base = recoverPath_.empty() ? std::string() : parentOf(recoverPath_);
+        if (!loadProjectFromJson(proj_, text, base, rep)) { showError("Couldn't recover the autosave.\n" + rep.error); return; }
+        filePath_ = recoverPath_;
+        resetUiAfterLoad();
+        startAudioReloads(rep.audioToLoad);
+        savedSnapshot_ = "";                  // the recovered work has never been saved
+        dirty_ = true;
+        showWarnings(rep.warnings);
+        toast("Recovered unsaved work");
+    }
+
+    static void centerNextWindow() {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    }
+
+    void drawDialogs() {
+        // file browser (one instance serves every purpose)
+        std::string chosen;
+        const bool wasOpen = fileBrowser_.isOpen();
+        if (fileBrowser_.draw(chosen)) onFileChosen(chosen);
+        else if (wasOpen && !fileBrowser_.isOpen()) afterSave_ = Pending::None;       // cancelled: forget what was waiting on the save
+
+        constexpr ImGuiWindowFlags kDlg = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings;
+
+        if (wantUnsaved_) { ImGui::OpenPopup("Unsaved changes"); wantUnsaved_ = false; }
+        centerNextWindow();
+        if (ImGui::BeginPopupModal("Unsaved changes", nullptr, kDlg)) {
+            ImGui::Text("Save the changes to \"%s\" before continuing?", filePath_.empty() ? "Untitled" : fileNameOf(filePath_).c_str());
+            ImGui::Spacing();
+            if (ImGui::Button("Save", ImVec2(100, 0))) {
+                afterSave_ = pending_; afterSavePath_ = pendingPath_;
+                if (filePath_.empty()) openSaveAs();
+                else if (doSave(filePath_)) { performPending(afterSave_, afterSavePath_, false); afterSave_ = Pending::None; }
+                pending_ = Pending::None;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Don't save", ImVec2(100, 0))) { performPending(pending_, pendingPath_, true); pending_ = Pending::None; ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100, 0))) { pending_ = Pending::None; ImGui::CloseCurrentPopup(); }
+            ImGui::EndPopup();
+        }
+
+        if (wantError_) { ImGui::OpenPopup("Something went wrong"); wantError_ = false; }
+        centerNextWindow();
+        if (ImGui::BeginPopupModal("Something went wrong", nullptr, kDlg)) {
+            ImGui::PushTextWrapPos(460.0f);
+            ImGui::TextUnformatted(errorText_.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            if (ImGui::Button("OK", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
+        if (wantWarnings_) { ImGui::OpenPopup("Opened with problems"); wantWarnings_ = false; }
+        centerNextWindow();
+        if (ImGui::BeginPopupModal("Opened with problems", nullptr, kDlg)) {
+            ImGui::TextUnformatted("The project opened, but some things need your attention:");
+            ImGui::BeginChild("##warnlist", ImVec2(520, std::min(220.0f, 24.0f * (float)loadWarnings_.size() + 8.0f)), ImGuiChildFlags_Borders);
+            ImGui::PushTextWrapPos(500.0f);
+            for (const std::string& w : loadWarnings_) ImGui::BulletText("%s", w.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndChild();
+            ImGui::TextDisabled("Missing videos and songs can be relinked from the Media tab and the Conductor's inspector.");
+            if (ImGui::Button("OK", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
+        if (wantRecover_) { ImGui::OpenPopup("Recover unsaved work?"); wantRecover_ = false; }
+        centerNextWindow();
+        if (ImGui::BeginPopupModal("Recover unsaved work?", nullptr, kDlg)) {
+            ImGui::TextUnformatted(recoverPath_.empty() ? "MapHappy found unsaved work from a previous session." : "MapHappy found newer unsaved changes for this project\n(it may have closed unexpectedly).");
+            ImGui::Spacing();
+            if (ImGui::Button("Recover", ImVec2(100, 0))) { deferredRecover_ = true; ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine();
+            if (ImGui::Button("Discard", ImVec2(100, 0))) { deleteAutosave(recoverPath_); ImGui::CloseCurrentPopup(); }
+            ImGui::EndPopup();
+        }
+    }
+
     // ------------------------------------------------------------------ audio loading
     void startAudioLoad(const std::string& path) {
         audioLoader_.start(path);
@@ -324,7 +606,13 @@ private:
     void pollAudio() {
         AudioLoader::Result r;
         while (audioLoader_.poll(r)) {
-            if (r.ok) {
+            if (r.assetId > 0) {                                   // a song a loaded project remembers
+                AudioAsset* a = proj_.findAsset(r.assetId);
+                if (!a) continue;
+                a->loading = false;
+                if (r.ok) { a->buf = r.asset.buf; a->peakMin = std::move(r.asset.peakMin); a->peakMax = std::move(r.asset.peakMax); a->missing = false; }
+                else { a->missing = true; proj_.audioStatus = "Couldn't load " + a->name + ": " + r.error; proj_.audioStatusIsError = true; }
+            } else if (r.ok) {                                     // a new song: it lands on an audio track at the playhead
                 int id = proj_.addAudioAsset(std::move(r.asset));
                 Project::Placement pl = proj_.placeAudio(id);
                 if (pl.clipId) conductor_.selectAudioClip(pl.trackId, pl.clipId);
@@ -363,7 +651,8 @@ private:
                                    sel ? ImVec4(0.15f, 0.78f, 0.82f, 1.0f) : ImVec4(0, 0, 0, 1)))
                 selectedMediaId_ = m->id;
             std::string shortName = m->name.size() > 14 ? m->name.substr(0, 13) + "~" : m->name;
-            ImGui::TextUnformatted(shortName.c_str());
+            if (m->missing) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", shortName.c_str());
+            else ImGui::TextUnformatted(shortName.c_str());
             ImGui::EndGroup();
             ImGui::PopID();
             n++;
@@ -376,13 +665,9 @@ private:
         ImGui::SetNextWindowSize(size);
         ImGui::Begin("Media", nullptr, kPanel);
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-        ImGui::TextWrapped("Drag a video (or a WAV/MP3/FLAC song) onto the window, or paste a path:");
-        ImGui::PopStyleColor();
-        ImGui::SetNextItemWidth(-64.0f);
-        ImGui::InputText("##path", pathBuf_, sizeof(pathBuf_));
+        if (ImGui::Button("Add media...")) openAddMedia();
         ImGui::SameLine();
-        if (ImGui::Button("Add")) onFileDropped(pathBuf_);
+        ImGui::TextDisabled("or drag files onto the window");
         if (!status_.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error: %s", status_.c_str());
 
         ImGui::SeparatorText("Generators");
@@ -393,13 +678,19 @@ private:
         if (MediaItem* m = proj_.media.find(selectedMediaId_)) {
             ImGui::SeparatorText("Inspector");
             ImGui::Text("%s", m->name.c_str());
-            ImGui::TextDisabled("%dx%d", m->source->width(), m->source->height());
+            if (m->missing) {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "File not found");
+                ImGui::TextDisabled("%s", m->path.c_str());
+                if (ImGui::Button("Relink...")) openRelinkMedia(m->id);
+            } else {
+                ImGui::TextDisabled("%dx%d", m->source->width(), m->source->height());
+            }
             if (VideoSource* v = m->video()) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("%.2f fps", v->fps());
                 ImGui::TextDisabled("%s", m->path.c_str());
             }
-            ImGui::Checkbox("Playing", &m->playing);
+            if (!m->missing) ImGui::Checkbox("Playing", &m->playing);
             if (m->video()) {
                 ImGui::SameLine();
                 ImGui::Checkbox("Loop", &m->loop);
@@ -429,6 +720,7 @@ private:
         } else {
             ImGui::TextDisabled("%s  -  %s", s->name.c_str(), m->name.c_str());
             View v = fitView(m->aspect(), 18.0f);
+            inputRect_ = Rect{v.min.x, v.min.y, v.size.x, v.size.y, v.valid};
             if (v.valid) {
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 ImVec2 mx(v.min.x + v.size.x, v.min.y + v.size.y);
@@ -450,6 +742,7 @@ private:
         ImGui::Begin("Stage", nullptr, kPanel);
         ImGui::TextDisabled("Output %dx%d", proj_.outW, proj_.outH);
         View v = fitView((float)proj_.outW / (float)proj_.outH, 18.0f);
+        stageRect_ = Rect{v.min.x, v.min.y, v.size.x, v.size.y, v.valid};
         if (v.valid) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             ImVec2 mx(v.min.x + v.size.x, v.min.y + v.size.y);
@@ -477,4 +770,20 @@ private:
     ConductorPanel conductor_;
     AudioLoader   audioLoader_;
     std::vector<int> pendingRemoveMedia_;
+
+    // project file state
+    FileBrowser   fileBrowser_;
+    FileAction    fileAction_ = FileAction::None;
+    int           fileTarget_ = 0;
+    AppSettings   settings_;
+    std::string   filePath_, savedSnapshot_;
+    bool          dirty_ = false, exitApproved_ = false;
+    double        lastDirtyCheck_ = 0.0, lastAutosave_ = 0.0, toastUntil_ = 0.0;
+    std::string   toast_;
+    Pending       pending_ = Pending::None, afterSave_ = Pending::None, deferred_ = Pending::None;
+    std::string   pendingPath_, afterSavePath_, deferredPath_, recoverPath_, errorText_, relinkMediaPath_;
+    int           relinkMediaId_ = 0;
+    bool          wantUnsaved_ = false, wantError_ = false, wantWarnings_ = false, wantRecover_ = false, deferredRecover_ = false;
+    std::vector<std::string> loadWarnings_;
+    Rect          stageRect_, inputRect_;
 };

@@ -15,6 +15,8 @@
 
 // Path of a file dropped onto the window. GLFW calls this from glfwPollEvents().
 static std::string g_droppedPath;
+static bool g_closeRequested = false;
+static void onClose(GLFWwindow* w) { glfwSetWindowShouldClose(w, GLFW_FALSE); g_closeRequested = true; }   // the editor decides (it may ask about unsaved changes)
 static void onDrop(GLFWwindow*, int count, const char** paths) {
     if (count > 0) g_droppedPath = paths[0];
 }
@@ -35,6 +37,9 @@ static void run(GLFWwindow* window) {
     std::shared_ptr<const MixSnapshot> lastMix;
 
     project.addSurface(Shape::Quad);     // start with one surface so there is something to see
+    editor.markClean();
+    editor.startupRecovery();            // offers to bring back work from a crashed session
+    std::string lastTitle;
     double lastTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -44,6 +49,10 @@ static void run(GLFWwindow* window) {
         lastTime   = now;
 
         if (!g_droppedPath.empty()) { editor.onFileDropped(g_droppedPath); g_droppedPath.clear(); }
+        if (g_closeRequested) { g_closeRequested = false; editor.requestExit(); }
+        if (editor.exitApproved()) glfwSetWindowShouldClose(window, GLFW_TRUE);
+        const std::string title = editor.windowTitle();
+        if (title != lastTitle) { glfwSetWindowTitle(window, title.c_str()); lastTitle = title; }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -90,6 +99,7 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
     glfwSetDropCallback(window, onDrop);
+    glfwSetWindowCloseCallback(window, onClose);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::fprintf(stderr, "GLAD load failed\n"); return 1;

@@ -27,12 +27,14 @@ inline bool isAudioPath(const std::string& path) {
 // Decodes a song and finds its tempo on a worker thread, so a big file never freezes the UI.
 class AudioLoader {
 public:
-    struct Result { bool ok = false; std::string error; AudioAsset asset; };
+    // assetId == 0: a new song (decode + find tempo). assetId > 0: re-load a song a project remembers
+    // (decode only, so a tempo you corrected by hand isn't overwritten).
+    struct Result { bool ok = false; std::string error; AudioAsset asset; int assetId = 0; };
 
-    void start(const std::string& path) {
+    void start(const std::string& path, int assetId = 0) {
         Job j;
         j.name = baseName(path);
-        j.fut = std::async(std::launch::async, [path] { return run(path); });
+        j.fut = std::async(std::launch::async, [path, assetId] { return run(path, assetId); });
         jobs_.push_back(std::move(j));
     }
     bool busy() const { return !jobs_.empty(); }
@@ -52,16 +54,19 @@ public:
 
 private:
     struct Job { std::string name; std::future<Result> fut; };
-    static Result run(std::string path) {
+    static Result run(std::string path, int assetId) {
         Result r;
+        r.assetId = assetId;
         AudioBuffer buf;
         if (!decodeAudioFile(path, buf, r.error)) return r;
         r.asset.name = baseName(path);
         r.asset.path = path;
         computePeaks(buf, r.asset.peakMin, r.asset.peakMax);
-        BeatInfo bi = detectBeats(buf);
-        r.asset.bpm = bi.bpm;
-        r.asset.beatOffset = bi.offset;
+        if (assetId == 0) {
+            BeatInfo bi = detectBeats(buf);
+            r.asset.bpm = bi.bpm;
+            r.asset.beatOffset = bi.offset;
+        }
         r.asset.buf = std::make_shared<const AudioBuffer>(std::move(buf));
         r.ok = true;
         return r;
