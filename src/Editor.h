@@ -2,6 +2,7 @@
 #include "AudioLoader.h"
 #include "ConductorPanel.h"
 #include "FileBrowser.h"
+#include "OutputState.h"
 #include "ProjectIO.h"
 #include "GLUtil.h"
 #include "Project.h"
@@ -80,6 +81,15 @@ public:
     void autosaveNow() { std::string err; writeTextFileAtomic(autosavePathFor(filePath_), projectToJson(proj_, filePath_, false), err); }
     // Offer to bring back work from a crashed session. Call once at startup.
     void startupRecovery() { if (autosaveIsNewer("")) { recoverPath_.clear(); wantRecover_ = true; } }
+
+    // Connects the Output menu and buttons to the projector output. Call once, before the first frame.
+    void attachOutput(OutputState* o) {
+        out_ = o;
+        if (!out_) return;
+        out_->monitorName = settings_.outputMonitor; out_->monitorIndex = settings_.outputMonitorIndex;
+        out_->mode = settings_.outputMode == "fullscreen" ? OutputMode::Fullscreen : settings_.outputMode == "windowed" ? OutputMode::Windowed : OutputMode::Auto;
+        out_->scale = settings_.outputScale == "stretch" ? OutputScale::Stretch : OutputScale::Fit;
+    }
 
     struct Rect { float x = 0, y = 0, w = 0, h = 0; bool valid = false; };   // where the views were drawn (used by tests)
     Rect stageRect() const { return stageRect_; }
@@ -270,6 +280,20 @@ private:
         if (tabButton("Input", viewMode_ == 1)) viewMode_ = 1;
         ImGui::SameLine();
         if (tabButton("Stage", viewMode_ == 2)) viewMode_ = 2;
+        if (out_) {
+            ImGui::SameLine(std::max(width - 90.0f - 214.0f, 0.0f));
+            const bool live = out_->isOpen;
+            if (live) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.10f, 0.45f, 0.50f, 1.0f));
+            if (ImGui::Button(live ? "Output: ON" : "Output", ImVec2(100, 0))) toggleOutput();
+            if (live) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show or hide the projector output window (F11)");
+            ImGui::SameLine();
+            const bool black = out_->blackout;
+            if (black) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.75f, 0.15f, 0.15f, 1.0f));
+            if (ImGui::Button(black ? "BLACKOUT" : "Blackout", ImVec2(100, 0))) out_->blackout = !out_->blackout;
+            if (black) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cut the output to black (B). Works from the output window too.");
+        }
         ImGui::SameLine(std::max(width - 90.0f, 0.0f));
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("%.0f FPS", ImGui::GetIO().Framerate);
@@ -358,6 +382,90 @@ private:
     }
 
 
+
+    // ------------------------------------------------------------------ projector output
+    void toggleOutput() { if (out_) { out_->wanted = !out_->wanted; if (out_->wanted) out_->message.clear(); } }
+
+    void saveOutputSettings() {
+        if (!out_) return;
+        settings_.outputMonitor = out_->monitorName; settings_.outputMonitorIndex = out_->monitorIndex;
+        settings_.outputMode = out_->mode == OutputMode::Fullscreen ? "fullscreen" : out_->mode == OutputMode::Windowed ? "windowed" : "auto";
+        settings_.outputScale = out_->scale == OutputScale::Stretch ? "stretch" : "fit";
+        saveSettings(settings_);
+    }
+
+    void setOutputResolution(int w, int h) {
+        proj_.outW = std::max(64, std::min(8192, w));
+        proj_.outH = std::max(64, std::min(8192, h));
+        toast("Output size " + std::to_string(proj_.outW) + " x " + std::to_string(proj_.outH));
+    }
+
+    // Matches the stage to the projector's own pixels, so the picture is shown 1:1 with no scaling.
+    void matchOutputResolution() {
+        if (!out_) return;
+        if (out_->isFullscreen && out_->fbW > 0) { setOutputResolution(out_->fbW, out_->fbH); return; }
+        const int i = out_->activeMonitor;
+        if (i >= 0 && i < (int)out_->monitors.size() && out_->monitors[i].w > 0) setOutputResolution(out_->monitors[i].w, out_->monitors[i].h);
+        else toast("No display to match");
+    }
+
+    void drawOutputMenu() {
+        if (!out_ || !ImGui::BeginMenu("Output")) return;
+        if (ImGui::MenuItem("Show output window", "F11", out_->wanted)) toggleOutput();
+        if (ImGui::MenuItem("Blackout", "B", out_->blackout)) out_->blackout = !out_->blackout;
+        ImGui::Separator();
+
+        if (ImGui::BeginMenu("Display")) {
+            if (out_->monitors.empty()) ImGui::TextDisabled("No displays found");
+            for (int i = 0; i < (int)out_->monitors.size(); i++) {
+                const MonitorInfo& m = out_->monitors[i];
+                std::string label = std::to_string(i + 1) + ": " + m.name + "  (" + std::to_string(m.w) + " x " + std::to_string(m.h) + ")";
+                if (m.hasEditor) label += "  - this window";
+                if (ImGui::MenuItem((label + "##mon" + std::to_string(i)).c_str(), nullptr, i == out_->activeMonitor)) {
+                    out_->monitorName = m.name; out_->monitorIndex = i; saveOutputSettings();
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Mode")) {
+            if (ImGui::MenuItem("Automatic (fullscreen on another display)", nullptr, out_->mode == OutputMode::Auto)) { out_->mode = OutputMode::Auto; saveOutputSettings(); }
+            if (ImGui::MenuItem("Always fullscreen", nullptr, out_->mode == OutputMode::Fullscreen)) { out_->mode = OutputMode::Fullscreen; saveOutputSettings(); }
+            if (ImGui::MenuItem("Preview window", nullptr, out_->mode == OutputMode::Windowed)) { out_->mode = OutputMode::Windowed; saveOutputSettings(); }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Scaling")) {
+            if (ImGui::MenuItem("Fit (keep the picture's shape)", nullptr, out_->scale == OutputScale::Fit)) { out_->scale = OutputScale::Fit; saveOutputSettings(); }
+            if (ImGui::MenuItem("Stretch (fill the screen)", nullptr, out_->scale == OutputScale::Stretch)) { out_->scale = OutputScale::Stretch; saveOutputSettings(); }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Resolution")) {
+            if (ImGui::MenuItem("Match the output display")) matchOutputResolution();
+            ImGui::Separator();
+            struct Preset { const char* name; int w, h; };
+            static const Preset presets[] = {{"1280 x 720", 1280, 720}, {"1920 x 1080", 1920, 1080}, {"2560 x 1440", 2560, 1440}, {"3840 x 2160", 3840, 2160}};
+            for (const Preset& pr : presets)
+                if (ImGui::MenuItem(pr.name, nullptr, proj_.outW == pr.w && proj_.outH == pr.h)) setOutputResolution(pr.w, pr.h);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Custom...")) { customW_ = proj_.outW; customH_ = proj_.outH; wantCustomSize_ = true; }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+    }
+
+    void drawOutputDialogs() {
+        if (wantCustomSize_) { ImGui::OpenPopup("Output size"); wantCustomSize_ = false; }
+        centerNextWindow();
+        if (ImGui::BeginPopupModal("Output size", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::TextDisabled("The resolution the show is drawn at (64 to 8192). Use your projector's own\nresolution for a sharp picture.");
+            ImGui::SetNextItemWidth(110); ImGui::InputInt("Width", &customW_, 0, 0);
+            ImGui::SetNextItemWidth(110); ImGui::InputInt("Height", &customH_, 0, 0);
+            if (ImGui::Button("Apply", ImVec2(100, 0))) { setOutputResolution(customW_, customH_); ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
+
     // ------------------------------------------------------------------ project files
     enum class Pending { None, New, Open, Exit };
     enum class FileAction { None, OpenProject, SaveProject, AddMedia, RelinkMedia, RelinkAudio };
@@ -382,6 +490,7 @@ private:
                 if (ImGui::MenuItem("Exit")) requestExit();
                 ImGui::EndMenu();
             }
+            drawOutputMenu();
             // project name in the middle, a short message (e.g. "Saved") on the right
             std::string name = filePath_.empty() ? std::string("Untitled") : fileNameOf(filePath_);
             if (dirty_) name += " *";
@@ -400,6 +509,10 @@ private:
     void handleShortcuts() {
         ImGuiIO& io = ImGui::GetIO();
         if (io.WantTextInput || fileBrowser_.isOpen() || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) return;
+        if (out_) {
+            if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) toggleOutput();
+            if (!io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_B, false)) out_->blackout = !out_->blackout;
+        }
         if (!io.KeyCtrl) return;
         if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) openSaveAs(); else saveProject(); }
         else if (ImGui::IsKeyPressed(ImGuiKey_O, false)) openOpenDialog();
@@ -532,6 +645,7 @@ private:
     }
 
     void drawDialogs() {
+        drawOutputDialogs();
         // file browser (one instance serves every purpose)
         std::string chosen;
         const bool wasOpen = fileBrowser_.isOpen();
@@ -741,6 +855,15 @@ private:
         ImGui::SetNextWindowSize(size);
         ImGui::Begin("Stage", nullptr, kPanel);
         ImGui::TextDisabled("Output %dx%d", proj_.outW, proj_.outH);
+        if (out_) {
+            if (out_->isOpen) {
+                ImGui::SameLine();
+                const char* where = (out_->activeMonitor >= 0 && out_->activeMonitor < (int)out_->monitors.size()) ? out_->monitors[out_->activeMonitor].name.c_str() : "";
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.0f), "  LIVE%s on %s", out_->isFullscreen ? " (fullscreen)" : " (window)", where);
+            }
+            if (out_->blackout) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "  BLACKOUT"); }
+            if (!out_->message.empty()) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "  %s", out_->message.c_str()); }
+        }
         View v = fitView((float)proj_.outW / (float)proj_.outH, 18.0f);
         stageRect_ = Rect{v.min.x, v.min.y, v.size.x, v.size.y, v.valid};
         if (v.valid) {
@@ -786,4 +909,7 @@ private:
     bool          wantUnsaved_ = false, wantError_ = false, wantWarnings_ = false, wantRecover_ = false, deferredRecover_ = false;
     std::vector<std::string> loadWarnings_;
     Rect          stageRect_, inputRect_;
+    OutputState*  out_ = nullptr;
+    int           customW_ = 1920, customH_ = 1080;
+    bool          wantCustomSize_ = false;
 };

@@ -8,10 +8,13 @@
 #include "Editor.h"
 #include "GLUtil.h"
 #include "Params.h"
+#include "OutputController.h"
 #include "Project.h"
 #include "Renderer.h"
+#include <chrono>
 #include <cstdio>
 #include <string>
+#include <thread>
 
 // Path of a file dropped onto the window. GLFW calls this from glfwPollEvents().
 static std::string g_droppedPath;
@@ -38,6 +41,10 @@ static void run(GLFWwindow* window) {
 
     project.addSurface(Shape::Quad);     // start with one surface so there is something to see
     editor.markClean();
+
+    OutputState outState;                                 // the projector output window: its settings and status
+    OutputController outCtl(window, outState);
+    editor.attachOutput(&outState);
     editor.startupRecovery();            // offers to bring back work from a crashed session
     std::string lastTitle;
     double lastTime = glfwGetTime();
@@ -68,6 +75,7 @@ static void run(GLFWwindow* window) {
         }
         project.media.update(dt);                 // advance generators and video
         renderer.renderStage(stageRT, project);   // draw all surfaces into the stage texture
+        outCtl.update(project, stageRT);          // show it on the projector (also handles that window's keys)
 
         int fbw, fbh;
         glfwGetFramebufferSize(window, &fbw, &fbh);
@@ -79,6 +87,10 @@ static void run(GLFWwindow* window) {
         glfwSwapBuffers(window);
 
         editor.endFrame();                        // deferred deletions
+        ensureStageSize(stageRT, project);        // a new output resolution recreates the stage texture (between frames, so nothing points at the old one)
+
+        // The projector window's swap waits for its display; if it can't (minimised, hidden) don't spin the CPU
+        if (outState.isOpen && glfwGetTime() - now < 0.004) std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
     destroyRenderTarget(stageRT);

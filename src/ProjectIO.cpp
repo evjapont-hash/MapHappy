@@ -415,6 +415,10 @@ AppSettings loadSettings() {
     json j = json::parse(text, nullptr, false);
     if (j.is_discarded() || !j.is_object()) return s;
     s.lastFolder = get<std::string>(j, "lastFolder", "");
+    s.outputMonitor = get<std::string>(j, "outputMonitor", "");
+    s.outputMonitorIndex = get<int>(j, "outputMonitorIndex", -1);
+    s.outputMode = get<std::string>(j, "outputMode", "auto");
+    s.outputScale = get<std::string>(j, "outputScale", "fit");
     if (j.contains("recent") && j["recent"].is_array())
         for (const json& r : j["recent"]) if (r.is_string() && s.recent.size() < 10) s.recent.push_back(r.get<std::string>());
     return s;
@@ -422,6 +426,8 @@ AppSettings loadSettings() {
 
 void saveSettings(const AppSettings& s) {
     json j; j["recent"] = s.recent; j["lastFolder"] = s.lastFolder;
+    j["outputMonitor"] = s.outputMonitor; j["outputMonitorIndex"] = s.outputMonitorIndex;
+    j["outputMode"] = s.outputMode; j["outputScale"] = s.outputScale;
     std::ofstream f(pathFromUtf8(settingsPath()), std::ios::binary | std::ios::trunc);
     if (f) f << j.dump(2);
 }

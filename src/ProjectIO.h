@@ -32,6 +32,10 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
 struct AppSettings {
     std::vector<std::string> recent;       // most recent first, at most 10
     std::string lastFolder;
+    std::string outputMonitor;             // the display last used for the projector output
+    int outputMonitorIndex = -1;
+    std::string outputMode = "auto";      // auto | fullscreen | windowed
+    std::string outputScale = "fit";      // fit | stretch
 };
 AppSettings loadSettings();
 void saveSettings(const AppSettings& s);
