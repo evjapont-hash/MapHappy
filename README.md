@@ -1,6 +1,6 @@
 # MapHappy
 
-A free, open-source **projection mapping** tool written in C++17 and OpenGL. Map video and generated
+A free, open-source **projection mapping** tool written in C++ and OpenGL. Map video and generated
 visuals onto real surfaces (walls, boxes, shapes), then choreograph them to a song on a keyframe
 timeline: no live audio-reactivity needed, every change lands exactly where you put it.
 
@@ -12,8 +12,6 @@ artwork from any commercial product and is not affiliated with one.
 > Status: working and in active development. Developed and tested on Windows. The code is written
 > to be cross-platform (CMake, GLFW, OpenGL 3.3 core, miniaudio) but has not been built on macOS yet.
 
-<!-- Add screenshots here: the editor (Input + Stage + Conductor), and a surface being warped. -->
-
 ## Features
 
 **Mapping**
@@ -24,6 +22,7 @@ artwork from any commercial product and is not affiliated with one.
 - Anti-aliased edges, soft feathering, flips, opacity and **blend modes** (Over, Add, Multiply, Screen).
 - A shared **media pool**: video files (FFmpeg) and a built-in test pattern; many surfaces can share
   one video, which is decoded once.
+<img width="1277" height="554" alt="Screenshot 2026-11-10 150749" src="https://github.com/user-attachments/assets/8c3da450-5f45-4092-99c9-b2f6f4c96551" />
 
 **Animation**
 - A **Conductor** timeline with tracks, clips and keyframes (Linear / Smooth / Hold curves).
@@ -41,6 +40,7 @@ artwork from any commercial product and is not affiliated with one.
   offset control compensates for output latency.
 - Snapping to beats, markers, clip edges and the playhead. Tap **M** while the music plays to drop
   markers. Split and trim audio clips.
+<img width="1035" height="378" alt="Screenshot 2026-10-27 213552" src="https://github.com/user-attachments/assets/2a9f3372-be73-44c3-8116-08ba42657b70" />
 
 **Show control**
 - A **projector output window**: borderless and sized exactly to a chosen display, sharing the
