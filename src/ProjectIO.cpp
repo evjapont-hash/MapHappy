@@ -1,4 +1,5 @@
 #include "ProjectIO.h"
+#include "Params.h"
 #include "PathUtil.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -78,8 +79,14 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
         json o;
         o["id"] = s.id; o["name"] = s.name; o["shape"] = shapeKey(s.shape); o["media"] = s.mediaId;
         o["flipH"] = s.flipH; o["flipV"] = s.flipV;
-        if (!(forDirtyCheck && isDriven(p, s.id, "visible"))) o["visible"] = s.visible;
-        if (!(forDirtyCheck && isDriven(p, s.id, "opacity"))) o["opacity"] = s.opacity;
+        o["blend"] = blendKey(s.blend);
+        // every animatable value comes from the parameter table; ones a timeline is driving are left out of the
+        // dirty check so that merely playing a show doesn't look like an edit
+        for (const ParamDef& d : paramDefs()) {
+            if (forDirtyCheck && isDriven(p, s.id, d.key)) continue;
+            if (d.format == ParamFormat::Bool) o[d.key] = d.get(s) >= 0.5f;
+            else                                o[d.key] = d.get(s);
+        }
         o["in"] = jquad(s.in); o["out"] = jquad(s.out);
         surfaces.push_back(o);
     }
@@ -218,9 +225,16 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
             surfaceIds.insert(s.id);
             s.name = get<std::string>(o, "name", "Surface-" + std::to_string(s.id));
             s.shape = shapeFrom(get<std::string>(o, "shape", "quad"));
-            s.visible = get<bool>(o, "visible", true);
-            s.opacity = std::max(0.0f, std::min(1.0f, get<float>(o, "opacity", 1.0f)));
             s.flipH = get<bool>(o, "flipH", false); s.flipV = get<bool>(o, "flipV", false);
+            s.blend = blendFromKey(get<std::string>(o, "blend", "over"));
+            for (const ParamDef& d : paramDefs()) {                 // files from older versions lack the newer keys: they get the defaults
+                if (d.format == ParamFormat::Bool) d.set(s, get<bool>(o, d.key, d.def >= 0.5f) ? 1.0f : 0.0f);
+                else {
+                    float v = get<float>(o, d.key, d.def);
+                    if (!std::isfinite(v)) v = d.def;
+                    d.set(s, std::max(d.min, std::min(d.max, v)));
+                }
+            }
             s.mediaId = get<int>(o, "media", MediaPool::kPatternId);
             if (!mediaIds.count(s.mediaId)) { warn("\"" + s.name + "\" used media that isn't in the project; it now shows the test pattern"); s.mediaId = MediaPool::kPatternId; }
             Vec2 q[4];

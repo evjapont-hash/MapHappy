@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -93,9 +94,12 @@ public:
 
     struct Rect { float x = 0, y = 0, w = 0, h = 0; bool valid = false; };   // where the views were drawn (used by tests)
     Rect stageRect() const { return stageRect_; }
+    // Where a named control was drawn this frame ("slider:posX", "header:Transform", ...). Used by the automated UI tests.
+    Rect uiRect(const std::string& name) const { auto it = rects_.find(name); return it == rects_.end() ? Rect{} : it->second; }
     Rect inputRect() const { return inputRect_; }
 
     void drawUI() {
+        rects_.clear();
         pollAudio();
         tickProjectState();
         const float menuH = drawMenuBar();
@@ -211,6 +215,20 @@ private:
         dl->AddLine(ImVec2(c.x, c.y - 9), ImVec2(c.x, c.y + 9), kAccent, 1.5f);
     }
 
+    // A thin light-yellow outline of where a transformed surface really is, drawn alongside its mapped quad.
+    void drawEffectiveOutline(const View& v, Shape shape, const Vec2 q[4]) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImU32 col = IM_COL32(255, 238, 130, 240);        // readable against both black and orange pictures
+        ImVec2 p[4];
+        for (int i = 0; i < 4; i++) p[i] = v.toScreen(q[i]);
+        dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 1.0f);
+        if (shape != Shape::Quad) {
+            std::vector<ImVec2> pts;
+            for (Vec2 o : outlineInQuad(shape, q)) pts.push_back(v.toScreen(o));
+            if (pts.size() > 2) dl->AddPolyline(pts.data(), (int)pts.size(), col, ImDrawFlags_Closed, 1.5f);
+        }
+    }
+
     enum Panel { PanelInput = 0, PanelStage = 1 };
     struct Drag { int handle = -1; Panel panel = PanelInput; int surfaceId = 0; Vec2 prev{0, 0}; };
 
@@ -233,11 +251,13 @@ private:
                     if (d < best) { best = d; handle = i; }
                 }
                 if (handle < 0 && pointInPolygon(outlineInQuad(s->shape, q), mouse)) handle = 4;
+                if (handle < 0 && isStage) { Vec2 eo[4]; effectiveOut(*s, (float)proj_.outW / (float)std::max(1, proj_.outH), eo); if (pointInPolygon(outlineInQuad(s->shape, eo), mouse)) handle = 4; }
                 if (handle >= 0) surfaceId = s->id;
             }
             if (handle < 0 && isStage) {          // clicked empty space or another surface: select the top one under the mouse
                 for (const Surface& o : proj_.surfaces) {
-                    if (o.visible && pointInPolygon(outlineInQuad(o.shape, o.out), mouse)) {
+                    Vec2 eo[4]; effectiveOut(o, (float)proj_.outW / (float)std::max(1, proj_.outH), eo);      // click what you can SEE
+                    if (o.visible && pointInPolygon(outlineInQuad(o.shape, eo), mouse)) {
                         proj_.selectedSurfaceId = o.id;
                         handle = 4; surfaceId = o.id;
                         break;
@@ -339,6 +359,57 @@ private:
         ImGui::End();
     }
 
+    void recordRect(const std::string& name) { const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax(); rects_[name] = Rect{a.x, a.y, b.x - a.x, b.y - a.y, true}; }
+
+    // ---- animatable parameters in the inspector
+    bool isAnimated(int surfaceId, const char* key) { return proj_.timeline.findTrackByPath(surfaceParamPath(surfaceId, key)) != nullptr; }
+
+    static void setParamToDefault(Surface& s, const char* key) { if (const ParamDef* d = findParamDef(key)) d->set(s, d->def); }
+
+    // Starts animating a parameter: makes its track, with a first 2 second clip at the playhead that holds the
+    // current value (so nothing jumps), and shows it in the Conductor.
+    void animateParam(Surface& s, const char* key) {
+        const std::string path = surfaceParamPath(s.id, key);
+        const bool had = proj_.timeline.findTrackByPath(path) != nullptr;
+        const int tid = proj_.timeline.addTrack(path);
+        Track* t = proj_.timeline.findTrack(tid);
+        int cid = 0;
+        if (!had && t && t->clips.empty()) {
+            const ParamDef* d = findParamDef(key);
+            const double start = Timeline::freeStart(*t, snapToFrame(proj_.transport.time), 2.0);
+            cid = proj_.timeline.addClip(tid, start, 2.0, d ? d->get(s) : 0.0f);
+        }
+        if (cid) conductor_.selectClip(tid, cid); else conductor_.selectTrack(tid);
+        proj_.timelineDirty = true;
+    }
+
+    // One slider for one parameter. A gold grab and a * mean a timeline is driving it. Double-click (or Ctrl+click)
+    // types an exact value; right-click offers "Animate in the Conductor" and "Reset to default".
+    void paramSlider(Surface& s, const char* key) {
+        const ParamDef* d = findParamDef(key);
+        if (!d) return;
+        const float scale = d->format == ParamFormat::Percent ? 100.0f : 1.0f;
+        const char* fmt = d->format == ParamFormat::Percent ? "%.0f%%" : d->format == ParamFormat::Degrees ? "%.1f deg" : "%.2f";
+        float v = d->get(s) * scale;
+        const bool animated = isAnimated(s.id, key);
+        ImGui::PushID(key);
+        if (animated) ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.95f, 0.75f, 0.2f, 1.0f));
+        const std::string label = std::string(d->label) + (animated ? " *" : "") + "###slider";
+        if (ImGui::SliderFloat(label.c_str(), &v, d->min * scale, d->max * scale, fmt)) d->set(s, std::max(d->min, std::min(d->max, v / scale)));
+        if (animated) ImGui::PopStyleColor();
+        { const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax(); rects_[std::string("slider:") + key] = Rect{a.x, a.y, ImGui::CalcItemWidth(), b.y - a.y, true}; }   // just the slider frame, not its label
+        if (ImGui::BeginPopupContextItem("##pctx")) {
+            if (!animated) { if (ImGui::MenuItem("Animate in the Conductor")) animateParam(s, key); }
+            else {
+                if (ImGui::MenuItem("Show in the Conductor")) { Track* t = proj_.timeline.findTrackByPath(surfaceParamPath(s.id, key)); if (t) conductor_.selectTrack(t->id); }
+                if (ImGui::MenuItem("Remove animation")) { if (Track* t = proj_.timeline.findTrackByPath(surfaceParamPath(s.id, key))) { proj_.timeline.removeTrack(t->id); proj_.timelineDirty = true; } }
+            }
+            if (ImGui::MenuItem("Reset to default")) d->set(s, d->def);
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
     void drawSurfaceInspector(Surface& s) {
         ImGui::SeparatorText("Inspector");
         char buf[64];
@@ -360,16 +431,51 @@ private:
                 ImGui::EndCombo();
             }
             if (cur) {
-                float w = std::min(200.0f, ImGui::GetContentRegionAvail().x);
+                float w = std::min(120.0f, ImGui::GetContentRegionAvail().x);
                 ImGui::Image(texId(cur->source->texture()), ImVec2(w, w / cur->aspect()), ImVec2(0, 1), ImVec2(1, 0));
             }
         }
         if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
-            float pct = s.opacity * 100.0f;
-            if (ImGui::SliderFloat("Opacity", &pct, 0.0f, 100.0f, "%.0f%%")) s.opacity = pct / 100.0f;
+            paramSlider(s, "opacity");
+            int blend = (int)s.blend;
+            const char* blends[] = {"Over", "Add", "Multiply", "Screen"};
+            if (ImGui::Combo("Blend", &blend, blends, 4)) s.blend = (Blend)blend;
+            recordRect("combo:Blend");
+            paramSlider(s, "feather");
             ImGui::Checkbox("Flip horizontal", &s.flipH);
             ImGui::SameLine();
             ImGui::Checkbox("Flip vertical", &s.flipV);
+        }
+        const bool openTransform = ImGui::CollapsingHeader("Transform");
+        recordRect("header:Transform");
+        if (openTransform) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]); ImGui::TextWrapped("Moves the mapped shape without changing how it is mapped"); ImGui::PopStyleColor();
+            for (const char* k : {"posX", "posY", "rotation", "scale", "scaleX", "scaleY"}) paramSlider(s, k);
+            const bool resetT = ImGui::Button("Reset transform");
+            recordRect("button:Reset transform");
+            if (resetT) for (const char* k : {"posX", "posY", "rotation", "scale", "scaleX", "scaleY"}) setParamToDefault(s, k);
+        }
+        const bool openContent = ImGui::CollapsingHeader("Content");
+        recordRect("header:Content");
+        if (openContent) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]); ImGui::TextWrapped("Scrolls, zooms and spins the picture inside the shape"); ImGui::PopStyleColor();
+            for (const char* k : {"contentX", "contentY", "contentScale", "contentRotation"}) paramSlider(s, k);
+            if (ImGui::Button("Reset content")) for (const char* k : {"contentX", "contentY", "contentScale", "contentRotation"}) setParamToDefault(s, k);
+        }
+        const bool openColor = ImGui::CollapsingHeader("Color");
+        recordRect("header:Color");
+        if (openColor) {
+            float tint[3] = {s.tintR, s.tintG, s.tintB};
+            if (ImGui::ColorEdit3("Tint", tint)) { s.tintR = tint[0]; s.tintG = tint[1]; s.tintB = tint[2]; }
+            if (ImGui::BeginPopupContextItem("##tintctx")) {
+                for (const char* k : {"tintR", "tintG", "tintB"}) {
+                    const ParamDef* d = findParamDef(k);
+                    if (d && ImGui::MenuItem((std::string("Animate ") + d->label).c_str(), nullptr, false, !isAnimated(s.id, k))) animateParam(s, k);
+                }
+                ImGui::EndPopup();
+            }
+            for (const char* k : {"hue", "saturation", "contrast", "brightness"}) paramSlider(s, k);
+            if (ImGui::Button("Reset colour")) for (const char* k : {"tintR", "tintG", "tintB", "hue", "saturation", "contrast", "brightness"}) setParamToDefault(s, k);
         }
         if (ImGui::CollapsingHeader("Geometry")) {
             if (ImGui::Button("Reset input")) proj_.resetInput(s);
@@ -842,6 +948,7 @@ private:
                 dl->AddImage(texId(m->source->texture()), v.min, mx, ImVec2(0, 1), ImVec2(1, 0));
                 dl->AddRect(v.min, mx, IM_COL32(90, 90, 95, 255));
                 drawQuadOverlay(v, s->shape, s->in, true);
+                if (!inTransformIsIdentity(*s)) { Vec2 ei[4]; effectiveIn(*s, m->aspect(), ei); drawEffectiveOutline(v, s->shape, ei); }
                 ImGui::InvisibleButton("##input", ImGui::GetContentRegionAvail());
                 interact(PanelInput, v);
             }
@@ -872,9 +979,13 @@ private:
             dl->AddRectFilled(v.min, mx, IM_COL32(0, 0, 0, 255));
             dl->AddImage(texId(stage_.tex), v.min, mx, ImVec2(0, 1), ImVec2(1, 0));
             dl->AddRect(v.min, mx, IM_COL32(90, 90, 95, 255));
+            const float stageAspect = (float)proj_.outW / (float)std::max(1, proj_.outH);
             for (Surface& s : proj_.surfaces)
-                if (s.visible && s.id != proj_.selectedSurfaceId) drawQuadOverlay(v, s.shape, s.out, false);
-            if (Surface* sel = proj_.selected()) drawQuadOverlay(v, sel->shape, sel->out, true);
+                if (s.visible && s.id != proj_.selectedSurfaceId) { Vec2 eo[4]; effectiveOut(s, stageAspect, eo); drawQuadOverlay(v, s.shape, eo, false); }
+            if (Surface* sel = proj_.selected()) {
+                drawQuadOverlay(v, sel->shape, sel->out, true);                       // the mapped quad, with its handles
+                if (!outTransformIsIdentity(*sel)) { Vec2 eo[4]; effectiveOut(*sel, stageAspect, eo); drawEffectiveOutline(v, sel->shape, eo); }
+            }
             ImGui::InvisibleButton("##stage", ImGui::GetContentRegionAvail());
             interact(PanelStage, v);
         }
@@ -909,6 +1020,7 @@ private:
     bool          wantUnsaved_ = false, wantError_ = false, wantWarnings_ = false, wantRecover_ = false, deferredRecover_ = false;
     std::vector<std::string> loadWarnings_;
     Rect          stageRect_, inputRect_;
+    std::map<std::string, Rect> rects_;
     OutputState*  out_ = nullptr;
     int           customW_ = 1920, customH_ = 1080;
     bool          wantCustomSize_ = false;

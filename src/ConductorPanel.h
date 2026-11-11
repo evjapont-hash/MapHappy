@@ -28,6 +28,8 @@ public:
 
     void selectAudioClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.audioClip = clipId; }
     void resetSelection() { sel_ = Sel{}; drag_ = Drag{}; scrollT_ = 0.0; }
+    void selectTrack(int trackId) { sel_ = Sel{}; sel_.track = trackId; }
+    void selectClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.clip = clipId; }
     std::function<void(int)> onRelinkAudio;      // asked to find a missing song again (the editor shows the file dialog)
 
     void draw(ImVec2 pos, ImVec2 size) {
@@ -110,6 +112,7 @@ private:
         char b[32];
         if (pi.isBool) return v >= 0.5f ? "On" : "Off";
         if (pi.percent) std::snprintf(b, sizeof(b), "%.0f%%", v * 100.0f);
+        else if (pi.degrees) std::snprintf(b, sizeof(b), "%.1f deg", v);
         else            std::snprintf(b, sizeof(b), "%.2f", v);
         return b;
     }
@@ -128,13 +131,24 @@ private:
         ImGui::SameLine(0, 20);
         if (ImGui::Button("+ Track")) ImGui::OpenPopup("##addtrack");
         if (ImGui::BeginPopup("##addtrack")) {
-            std::string lastGroup;
-            for (const ParamInfo& pi : listParams(proj_)) {
-                if (proj_.timeline.findTrackByPath(pi.path)) continue;        // one track per parameter
-                if (pi.group != lastGroup) { ImGui::SeparatorText(pi.group.c_str()); lastGroup = pi.group; }
-                if (ImGui::Selectable(pi.label.c_str())) proj_.timeline.addTrack(pi.path);
+            // Surface > category > parameter. Parameters that already have a track are shown ticked and greyed out.
+            static const char* kCategories[] = {"Appearance", "Transform", "Content", "Color"};
+            for (const Surface& sf : proj_.surfaces) {
+                if (!ImGui::BeginMenu((sf.name + "##surf" + std::to_string(sf.id)).c_str())) continue;
+                for (const char* cat : kCategories) {
+                    if (!ImGui::BeginMenu(cat)) continue;
+                    for (const ParamDef& d : paramDefs()) {
+                        if (std::string(d.category) != cat) continue;
+                        const std::string path = surfaceParamPath(sf.id, d.key);
+                        const bool used = proj_.timeline.findTrackByPath(path) != nullptr;
+                        if (ImGui::MenuItem(d.label, nullptr, used, !used)) proj_.timeline.addTrack(path);
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMenu();
             }
-            ImGui::SeparatorText("Audio");
+            if (proj_.surfaces.empty()) ImGui::TextDisabled("Add a surface first");
+            ImGui::Separator();
             if (ImGui::Selectable("Audio track")) proj_.timeline.addAudioTrack();
             ImGui::EndPopup();
         }
