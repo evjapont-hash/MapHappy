@@ -84,7 +84,7 @@ for FFmpeg. Everything else is fetched by CMake.
 git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
 C:\vcpkg\bootstrap-vcpkg.bat
 
-git clone https://github.com/<you>/MapHappy.git
+git clone https://github.com/evjapont-hash/MapHappy.git
 cd MapHappy
 cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
 cmake --build build --config Release
