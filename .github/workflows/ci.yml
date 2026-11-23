@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# a newer push to the same branch cancels the older run
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The complete suite: unit tests, OpenGL tests and the scripted UI tests that drive the real editor.
+  # GitHub's runners have no GPU, so this uses a virtual display (Xvfb) and Mesa's software OpenGL.
+  linux:
+    name: Linux (all tests)
+    runs-on: ubuntu-24.04
+    env:
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config git ca-certificates \
+            ffmpeg libavformat-dev libavcodec-dev libswscale-dev libavutil-dev \
+            libgl-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            xvfb libgl1-mesa-dri libglx-mesa0
+
+      - name: Make a short test video
+        run: ffmpeg -loglevel error -f lavfi -i testsrc=duration=4:size=1280x720:rate=60 -c:v libx264 -pix_fmt yuv420p tests/data/test.mp4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DMAPHAPPY_BUILD_TESTS=ON -DMAPHAPPY_GL_TESTS=ON
+          -DMAPHAPPY_TEST_VIDEO=${{ github.workspace }}/tests/data/test.mp4
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: xvfb-run -a -s "-screen 0 3840x1080x24" ctest --test-dir build --output-on-failure
+
+  # Builds the app on Windows (FFmpeg through vcpkg) and runs the unit tests, which need no graphics card.
+  windows:
+    name: Windows (build + unit tests)
+    runs-on: windows-latest
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg packages (FFmpeg takes a while to build)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg-cache
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
+
+      - name: Create the cache folder
+        run: New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DMAPHAPPY_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Collect the program and its DLLs
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build\Release\MapHappy.exe dist\
+          Copy-Item build\Release\*.dll dist\
+
+      - name: Upload the Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MapHappy-windows
+          path: dist
+
+  # Builds the app on macOS (FFmpeg from Homebrew) and runs the unit tests.
+  macos:
+    name: macOS (build + unit tests)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install ffmpeg pkg-config
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMAPHAPPY_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

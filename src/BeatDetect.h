@@ -75,7 +75,7 @@ inline std::vector<float> onsetCurve(const AudioBuffer& b) {
             for (int k = edge[bd]; k < edge[bd + 1]; k++) flux += std::max(0.0f, cur[k] - prev[k]);
             band[bd][f] = flux / (float)(edge[bd + 1] - edge[bd]);
         }
-        prev = cur;
+        std::swap(prev, cur);                                   // cur is fully rewritten (bins 1..256) next frame
     }
 
     // per band: remove the moving average (keep only sudden rises), normalise, then sum

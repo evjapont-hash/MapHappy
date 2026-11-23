@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,10 @@ public:
     const Geom& geom() const { return geom_; }
     static constexpr float kLaneH = 64.0f, kAudioLaneH = 104.0f, kHeaderH = 16.0f, kRulerH = 38.0f, kNameW = 210.0f, kInspW = 250.0f;
 
+    // Where a named control was drawn this frame ("button:+ Track", ...). Used by the automated UI tests.
+    struct Rect { float x = 0, y = 0, w = 0, h = 0; bool valid = false; };
+    Rect rect(const std::string& name) const { auto it = rects_.find(name); return it == rects_.end() ? Rect{} : it->second; }
+
     void selectAudioClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.audioClip = clipId; }
     void resetSelection() { sel_ = Sel{}; drag_ = Drag{}; scrollT_ = 0.0; }
     void selectTrack(int trackId) { sel_ = Sel{}; sel_.track = trackId; }
@@ -38,6 +43,7 @@ public:
         ImGui::Begin("Conductor", nullptr, kFlags);
         Transport& tr = proj_.transport;
         ImGuiIO& io = ImGui::GetIO();
+        rects_.clear();
 
         const bool keysFree = !io.WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
         if (keysFree && ImGui::IsKeyPressed(ImGuiKey_Space, false)) tr.playing = !tr.playing;
@@ -87,6 +93,7 @@ private:
     static constexpr ImU32 kBeat   = IM_COL32(90, 225, 110, 255);
     static constexpr ImU32 kMarker = IM_COL32(255, 170, 40, 255);
 
+    void record(const char* name) { const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax(); rects_[name] = Rect{a.x, a.y, b.x - a.x, b.y - a.y, true}; }
     float tToX(double t) const { return canvasX0_ + (float)((t - scrollT_) * pps_); }
     double xToT(float x) const { return (x - canvasX0_) / pps_ + scrollT_; }
     void dirty() { proj_.timelineDirty = true; }
@@ -121,8 +128,10 @@ private:
     void drawTransportBar() {
         Transport& tr = proj_.transport;
         if (ImGui::Button(tr.playing ? "Pause" : "Play", ImVec2(60, 0))) tr.playing = !tr.playing;
+        record("button:Play");
         ImGui::SameLine();
         if (ImGui::Button("Stop", ImVec2(52, 0))) { tr.playing = false; tr.time = 0.0; tr.seeked = true; scrollT_ = 0.0; dirty(); }
+        record("button:Stop");
         ImGui::SameLine();
         ImGui::Checkbox("Loop", &tr.loop);
         ImGui::SameLine(0, 20);
@@ -130,6 +139,7 @@ private:
         ImGui::Text("%s", formatTimecode(tr.time).c_str());
         ImGui::SameLine(0, 20);
         if (ImGui::Button("+ Track")) ImGui::OpenPopup("##addtrack");
+        record("button:+ Track");
         if (ImGui::BeginPopup("##addtrack")) {
             // Surface > category > parameter. Parameters that already have a track are shown ticked and greyed out.
             static const char* kCategories[] = {"Appearance", "Transform", "Content", "Color"};
@@ -157,6 +167,7 @@ private:
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Snap to beats, markers, clip edges and the playhead");
         ImGui::SameLine();
         if (ImGui::Button("Marker")) proj_.timeline.addMarker(tr.time);
+        record("button:Marker");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drop a marker at the playhead (M). Tap it along with the music while playing.");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(100);
@@ -886,4 +897,5 @@ private:
     Drag     drag_;
     Ctx      ctx_;
     Geom     geom_;
+    std::map<std::string, Rect> rects_;
 };

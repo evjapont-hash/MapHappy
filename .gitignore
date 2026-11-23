@@ -1,9 +1,16 @@
 build/
 .vs/
+.vscode/
 imgui.ini
+*.autosave
+*.maphappy.autosave
+*.tmp
+# media and show files stay out of the repository
 *.mp4
 *.mov
 *.mkv
 *.webm
-*.maphappy.autosave
-*.tmp
+*.wav
+*.mp3
+*.flac
+!tests/data/.gitkeep

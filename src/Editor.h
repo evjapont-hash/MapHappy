@@ -95,7 +95,12 @@ public:
     struct Rect { float x = 0, y = 0, w = 0, h = 0; bool valid = false; };   // where the views were drawn (used by tests)
     Rect stageRect() const { return stageRect_; }
     // Where a named control was drawn this frame ("slider:posX", "header:Transform", ...). Used by the automated UI tests.
-    Rect uiRect(const std::string& name) const { auto it = rects_.find(name); return it == rects_.end() ? Rect{} : it->second; }
+    Rect uiRect(const std::string& name) const {
+        auto it = rects_.find(name);
+        if (it != rects_.end()) return it->second;
+        const ConductorPanel::Rect c = conductor_.rect(name);
+        return Rect{c.x, c.y, c.w, c.h, c.valid};
+    }
     Rect inputRect() const { return inputRect_; }
 
     void drawUI() {
@@ -305,12 +310,14 @@ private:
             const bool live = out_->isOpen;
             if (live) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.10f, 0.45f, 0.50f, 1.0f));
             if (ImGui::Button(live ? "Output: ON" : "Output", ImVec2(100, 0))) toggleOutput();
+            recordRect("button:Output");
             if (live) ImGui::PopStyleColor();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show or hide the projector output window (F11)");
             ImGui::SameLine();
             const bool black = out_->blackout;
             if (black) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.75f, 0.15f, 0.15f, 1.0f));
             if (ImGui::Button(black ? "BLACKOUT" : "Blackout", ImVec2(100, 0))) out_->blackout = !out_->blackout;
+            recordRect("button:Blackout");
             if (black) ImGui::PopStyleColor();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cut the output to black (B). Works from the output window too.");
         }
@@ -516,7 +523,10 @@ private:
     }
 
     void drawOutputMenu() {
-        if (!out_ || !ImGui::BeginMenu("Output")) return;
+        if (!out_) return;
+        const bool outputMenuOpen = ImGui::BeginMenu("Output");
+        recordRect("menu:Output");
+        if (!outputMenuOpen) return;
         if (ImGui::MenuItem("Show output window", "F11", out_->wanted)) toggleOutput();
         if (ImGui::MenuItem("Blackout", "B", out_->blackout)) out_->blackout = !out_->blackout;
         ImGui::Separator();
@@ -579,7 +589,9 @@ private:
     float drawMenuBar() {
         const float h = ImGui::GetFrameHeight();
         if (ImGui::BeginMainMenuBar()) {
-            if (ImGui::BeginMenu("File")) {
+            const bool fileMenuOpen = ImGui::BeginMenu("File");
+            recordRect("menu:File");
+            if (fileMenuOpen) {
                 if (ImGui::MenuItem("New", "Ctrl+N")) requestNew();
                 if (ImGui::MenuItem("Open...", "Ctrl+O")) openOpenDialog();
                 if (ImGui::BeginMenu("Open Recent", !settings_.recent.empty())) {
