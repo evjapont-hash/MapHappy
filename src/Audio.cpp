@@ -20,7 +20,7 @@
 #include "Audio.h"
 #include <algorithm>
 
-bool decodeAudioFile(const std::string& path, AudioBuffer& out, std::string& error) {
+bool decodeAudioFile(const std::string& path, SongBuffer& out, std::string& error) {
     ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, kAudioRate);
     ma_decoder dec;
 #ifdef _WIN32

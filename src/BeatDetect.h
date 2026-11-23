@@ -46,7 +46,7 @@ inline void fft(std::vector<std::complex<float>>& a) {
 // The onset strength curve, one value per kHop frames.
 // The spectrum is split into frequency bands that are each normalised on their own, so a
 // low kick counts as much as a noisy hi-hat (plain spectral flux is dominated by the hats).
-inline std::vector<float> onsetCurve(const AudioBuffer& b) {
+inline std::vector<float> onsetCurve(const SongBuffer& b) {
     const size_t n = b.frames;
     std::vector<float> empty;
     if (n < (size_t)kWin * 4) return empty;
@@ -111,7 +111,7 @@ inline double sampleAt(const std::vector<float>& o, double x) {
 
 }  // namespace beatdetect
 
-inline BeatInfo detectBeats(const AudioBuffer& b) {
+inline BeatInfo detectBeats(const SongBuffer& b) {
     using namespace beatdetect;
     BeatInfo info;
     std::vector<float> o = onsetCurve(b);

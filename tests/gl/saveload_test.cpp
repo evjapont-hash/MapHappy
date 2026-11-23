@@ -39,9 +39,9 @@ static void buildShow(Project& p, const std::string& video, const std::string& s
     tl.findTrack(t2)->muted = true;
 
     AudioAsset a1; a1.name = fileNameOf(song); a1.path = song;
-    AudioBuffer buf; decodeAudioFile(song, buf, err);
+    SongBuffer buf; decodeAudioFile(song, buf, err);
     computePeaks(buf, a1.peakMin, a1.peakMax);
-    a1.buf = std::make_shared<const AudioBuffer>(std::move(buf));
+    a1.buf = std::make_shared<const SongBuffer>(std::move(buf));
     a1.bpm = 129.37; a1.beatOffset = 0.2;                             // as if corrected by hand
     const int aid = p.addAudioAsset(std::move(a1));
     const Project::Placement pl = p.placeAudio(aid);

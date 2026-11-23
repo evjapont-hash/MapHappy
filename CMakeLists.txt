@@ -78,6 +78,8 @@ target_link_directories(maphappy_core PUBLIC ${FFMPEG_LIBRARY_DIRS})
 target_link_libraries(maphappy_core PUBLIC glfw glad imgui_lib ${FFMPEG_LIBRARIES} ${CMAKE_DL_LIBS} Threads::Threads)
 if(APPLE)
   target_compile_definitions(maphappy_core PUBLIC GL_SILENCE_DEPRECATION)   # Apple deprecated OpenGL; it still works and we target 3.3 core
+  # miniaudio's CoreAudio backend (it can load these at run time, but linking them explicitly always works)
+  target_link_libraries(maphappy_core PUBLIC "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
 endif()
 if(MSVC)
   target_compile_options(maphappy_core PUBLIC /utf-8)

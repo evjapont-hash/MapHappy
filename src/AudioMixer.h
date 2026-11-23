@@ -11,7 +11,7 @@
 // What the audio thread needs to know about one clip. The UI builds a fresh list whenever
 // something changes and swaps it in atomically; the audio thread only ever reads a finished list.
 struct MixClip {
-    std::shared_ptr<const AudioBuffer> buf;
+    std::shared_ptr<const SongBuffer> buf;
     double start = 0.0;               // timeline seconds where the clip begins
     double offset = 0.0;              // seconds skipped at the start of the file
     double duration = 0.0;            // seconds of the file that play

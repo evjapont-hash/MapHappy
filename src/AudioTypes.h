@@ -9,7 +9,7 @@
 // so mixing never has to resample.
 constexpr int kAudioRate = 48000;
 
-struct AudioBuffer {
+struct SongBuffer {
     std::vector<float> samples;       // interleaved L R L R ...
     size_t frames = 0;                // sample frames (one frame = L + R)
     double duration() const { return (double)frames / kAudioRate; }
@@ -21,7 +21,7 @@ constexpr int kPeakBlock = 128;       // frames summarised by one waveform bucke
 struct AudioAsset {
     int         id = 0;
     std::string name, path;
-    std::shared_ptr<const AudioBuffer> buf;
+    std::shared_ptr<const SongBuffer> buf;
     std::vector<float> peakMin, peakMax;      // one pair per kPeakBlock frames, for drawing the waveform
     double bpm = 0.0;                         // 0 = unknown
     double beatOffset = 0.0;                  // seconds into the file where a beat lands
@@ -31,10 +31,10 @@ struct AudioAsset {
 };
 
 // Decodes WAV / MP3 / FLAC into our fixed format. Blocking; run it on a worker thread for big files.
-bool decodeAudioFile(const std::string& path, AudioBuffer& out, std::string& error);
+bool decodeAudioFile(const std::string& path, SongBuffer& out, std::string& error);
 
 // Min/max per block, for the waveform display.
-inline void computePeaks(const AudioBuffer& b, std::vector<float>& mn, std::vector<float>& mx) {
+inline void computePeaks(const SongBuffer& b, std::vector<float>& mn, std::vector<float>& mx) {
     size_t blocks = (b.frames + kPeakBlock - 1) / kPeakBlock;
     mn.assign(blocks, 0.0f); mx.assign(blocks, 0.0f);
     for (size_t k = 0; k < blocks; k++) {

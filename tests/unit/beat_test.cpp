@@ -21,7 +21,7 @@ int main() {
     for (const Case& c : cases) {
         const std::string path = tmp.file("song" + std::to_string(index++) + ".wav");
         if (!writeSyntheticSongFile(path, c.bpm, c.offset, 45.0, c.pattern, 100 + index)) { expect("the test song could be written", false); continue; }
-        AudioBuffer buf; std::string err;
+        SongBuffer buf; std::string err;
         if (!decodeAudioFile(path, buf, err)) { expect("the test song could be decoded", false); continue; }
         const BeatInfo bi = detectBeats(buf);
         const double beat = 60.0 / c.bpm;
@@ -33,12 +33,12 @@ int main() {
         expect(label, std::fabs(d) < 0.012);
     }
     // silence and noise must not invent a tempo with confidence
-    { AudioBuffer silent; silent.frames = kAudioRate * 20; silent.samples.assign(silent.frames * 2, 0.0f);
+    { SongBuffer silent; silent.frames = kAudioRate * 20; silent.samples.assign(silent.frames * 2, 0.0f);
       expect("silence has no tempo", detectBeats(silent).bpm == 0.0); }
-    { AudioBuffer tiny; tiny.frames = 1000; tiny.samples.assign(tiny.frames * 2, 0.1f);
+    { SongBuffer tiny; tiny.frames = 1000; tiny.samples.assign(tiny.frames * 2, 0.1f);
       expect("a clip too short to analyse is handled without crashing", detectBeats(tiny).bpm == 0.0); }
     // decoding
-    { std::string err; AudioBuffer b;
+    { std::string err; SongBuffer b;
       expect("a missing audio file reports an error", !decodeAudioFile(tmp.file("nope.wav"), b, err) && !err.empty());
       { std::ofstream(tmp.file("fake.mp3")) << "this is not audio"; }
       expect("a file that isn't audio reports an error instead of crashing", !decodeAudioFile(tmp.file("fake.mp3"), b, err) && !err.empty());

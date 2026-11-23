@@ -57,7 +57,7 @@ private:
     static Result run(std::string path, int assetId) {
         Result r;
         r.assetId = assetId;
-        AudioBuffer buf;
+        SongBuffer buf;
         if (!decodeAudioFile(path, buf, r.error)) return r;
         r.asset.name = baseName(path);
         r.asset.path = path;
@@ -67,7 +67,7 @@ private:
             r.asset.bpm = bi.bpm;
             r.asset.beatOffset = bi.offset;
         }
-        r.asset.buf = std::make_shared<const AudioBuffer>(std::move(buf));
+        r.asset.buf = std::make_shared<const SongBuffer>(std::move(buf));
         r.ok = true;
         return r;
     }

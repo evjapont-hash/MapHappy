@@ -4,13 +4,13 @@
 #include <chrono>
 #include <thread>
 
-static std::shared_ptr<AudioBuffer> rampBuffer(size_t frames) {
-    auto b = std::make_shared<AudioBuffer>(); b->frames = frames; b->samples.resize(frames * 2);
+static std::shared_ptr<SongBuffer> rampBuffer(size_t frames) {
+    auto b = std::make_shared<SongBuffer>(); b->frames = frames; b->samples.resize(frames * 2);
     for (size_t i = 0; i < frames; i++) b->samples[i * 2] = b->samples[i * 2 + 1] = (float)i / (float)frames;
     return b;
 }
-static std::shared_ptr<AudioBuffer> constBuffer(size_t frames, float v) {
-    auto b = std::make_shared<AudioBuffer>(); b->frames = frames; b->samples.assign(frames * 2, v); return b;
+static std::shared_ptr<SongBuffer> constBuffer(size_t frames, float v) {
+    auto b = std::make_shared<SongBuffer>(); b->frames = frames; b->samples.assign(frames * 2, v); return b;
 }
 static std::shared_ptr<MixSnapshot> snapshotOf(std::initializer_list<MixClip> clips) { return std::make_shared<MixSnapshot>(clips); }
 
@@ -71,9 +71,12 @@ int main() {
       if (ok) {
           eng.mixer().setSnapshot(snapshotOf({{constBuffer(kAudioRate * 10, 0.3f), 0.0, 0.0, 10.0, 1.0f}}));
           eng.mixer().seek(2.0); eng.mixer().play();
+          // compare against the time that really passed: CI machines (macOS especially) can oversleep a lot
+          const auto t0 = std::chrono::steady_clock::now();
           std::this_thread::sleep_for(std::chrono::milliseconds(700));
           const double t = eng.mixer().time();
-          expect("the device drives the master clock at real-time speed", t > 2.4 && t < 3.1);
+          const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+          expect("the device drives the master clock at real-time speed", t - 2.0 > elapsed - 0.3 && t - 2.0 < elapsed + 0.1);
           const double ts = eng.mixer().timeSmooth();
           expect("the smoothed clock never runs more than 30 ms past the real one", ts >= t && ts - t <= 0.0305);
           eng.mixer().pause();
