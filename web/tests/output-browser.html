@@ -1,0 +1,55 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MapHappy output window: browser tests</title>
+<!-- The editor and its projector output window side by side: the output must follow the editor and draw the same
+     picture. Results appear below and in the title ("PASSED n" / "FAILED n"). -->
+<style>body { margin: 0; font: 13px monospace; } iframe { border: 0; display: block; } #ed { width: 1500px; height: 850px; } #out { width: 640px; height: 360px; }</style>
+<pre id="out-log">running...</pre>
+<iframe id="ed" src="../editor.html?test"></iframe>
+<iframe id="out"></iframe>
+<script type="module">
+  const lines = []; let passed = 0, failed = 0;
+  const log = document.getElementById('out-log');
+  const expect = (what, ok) => { lines.push(`${ok ? 'PASS' : 'FAIL'}  ${what}`); ok ? passed++ : failed++; log.textContent = lines.join('\n') + '\n...'; };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const until = async (fn, ms = 6000) => { for (let t = 0; t < ms; t += 50) { try { if (fn()) return true; } catch { /* not yet */ } await sleep(50); } return false; };
+  const pixel = (gl, rt, fx, fy) => { const d = new Uint8Array(4); gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fbo); gl.readPixels(Math.floor(fx * rt.w), rt.h - 1 - Math.floor(fy * rt.h), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, d); gl.bindFramebuffer(gl.FRAMEBUFFER, null); return [...d.slice(0, 3)]; };
+  try {
+    const edFrame = document.getElementById('ed');
+    await until(() => edFrame.contentWindow.__editor?.show && edFrame.contentDocument.querySelector('#panel .item'), 10000);
+    const ed = edFrame.contentWindow.__editor;
+    ed.newShow();
+    const ops = await import('../js/editor-ops.js'), gen = await import('../js/gendefs.js');
+    const entry = gen.newGeneratorEntry(2, 'solid', 'Solid'); entry.width = entry.height = 16; entry.params.color = [0.2, 0.6, 1, 1];
+    ed.show.mediaList.push(entry); ed.show.media.set(2, (await import('../js/media.js')).createSource(ed.gl, entry, ed.files.resolve, () => {}));
+    const s = ed.show.surfaces[0]; s.media = 2; s.out = [{ x: 0.1, y: 0.1 }, { x: 0.6, y: 0.1 }, { x: 0.6, y: 0.8 }, { x: 0.1, y: 0.8 }];
+    const c = ops.addSurface(ed.show, 'circle', 2); c.out = [{ x: 0.5, y: 0.3 }, { x: 0.9, y: 0.3 }, { x: 0.9, y: 0.9 }, { x: 0.5, y: 0.9 }]; c.p.hue = 120;
+    ed.commit();
+
+    document.getElementById('out').src = '../output.html';          // like pressing Output: the window opens and says hello
+    const outFrame = document.getElementById('out');
+    expect('the output window connects and receives the show', await until(() => outFrame.contentWindow.__output?.show?.surfaces.length === 2, 10000));
+    const out = outFrame.contentWindow.__output;
+    await sleep(300);
+    const pts = [[0.3, 0.5], [0.7, 0.6], [0.95, 0.95], [0.55, 0.32]];
+    const same = () => pts.every(([x, y]) => JSON.stringify(pixel(ed.gl, ed.stageRT, x, y)) === JSON.stringify(pixel(out.gl, out.stage, x, y)));
+    expect('it draws exactly the same picture as the editor\'s stage', await until(same));
+    expect('...at the show\'s full resolution', out.stage.w === ed.show.outW && out.stage.h === ed.show.outH);
+
+    s.p.posX = 0.2; ed.touched();                                     // a drag in progress
+    expect('it follows a surface being dragged', await until(() => out.show.surfaces.find(x => x.id === s.id).p.posX === 0.2 && same()));
+    ops.setKey(ed.show, c.id, 'opacity', 0, 1); ops.setKey(ed.show, c.id, 'opacity', 2, 0); ed.commit(); ed.seek(1);
+    expect('it follows the timeline (a fade halfway at 1 s)', await until(() => Math.abs(out.show.surfaces.find(x => x.id === c.id).p.opacity - 0.5) < 0.01 && same()));
+    ed.show.presets[0] = { name: 'p', fade: 0, surfaces: [{ id: s.id, media: 2, values: { hue: 200 } }], folders: [] }; ed.playPreset(0);
+    expect('it follows presets played live', await until(() => out.show.surfaces.find(x => x.id === s.id).p.hue === 200 && same()));
+    const f = ops.addFolder(ed.show, 'F'); ops.moveSurfaceToFolder(ed.show, s.id, f); ed.commit(); ed.show.folders.get(f).visible = false;
+    expect('it follows folders being hidden', await until(() => out.show.folders.get(f)?.visible === false && same()));
+    ed.blackout = true;
+    expect('Blackout in the editor darkens the output', await until(() => out.blackoutFromEditor === true));
+    ed.blackout = false;
+    expect('no errors were shown in the editor', !edFrame.contentDocument.getElementById('status').dataset.error);
+  } catch (e) { expect(`crashed: ${e.stack || e}`, false); }
+  lines.push(failed ? `SOME CHECKS FAILED (${passed} passed, ${failed} failed)` : `ALL CHECKS PASSED (${passed} passed, 0 failed)`);
+  log.textContent = lines.join('\n');
+  document.title = failed ? `FAILED ${failed}` : `PASSED ${passed}`;
+</script>

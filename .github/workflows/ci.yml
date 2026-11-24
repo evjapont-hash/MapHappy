@@ -51,6 +51,7 @@ jobs:
           sleep 1
           node web/tools/run-browser-test.mjs http://127.0.0.1:8765/tests/browser.html google-chrome
           node web/tools/run-browser-test.mjs http://127.0.0.1:8765/tests/editor-browser.html google-chrome
+          node web/tools/run-browser-test.mjs http://127.0.0.1:8765/tests/output-browser.html google-chrome
 
       - name: Test
         run: xvfb-run -a -s "-screen 0 3840x1080x24" ctest --test-dir build --output-on-failure --timeout 120

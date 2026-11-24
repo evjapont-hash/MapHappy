@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MapHappy Output</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #ddd; background: rgba(20,20,24,0.85); border: 1px solid #333;
+          border-radius: 8px; padding: 14px 20px; font: 14px/1.5 system-ui, "Segoe UI", sans-serif; text-align: center; transition: opacity 0.6s; cursor: default; }
+  #hint.gone { opacity: 0; pointer-events: none; }
+  kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; font: 12px ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<div id="hint"><b>MapHappy projector output</b><br>Drag this window onto the projector's screen, then <b>double-click</b> (or press <kbd>F</kbd>) for full screen.<br>
+  <kbd>S</kbd> fit / stretch · <kbd>B</kbd> blackout · <kbd>Esc</kbd> leave full screen<br><span id="wait">Waiting for the editor…</span></div>
+<script type="module">
+  import { Output, CHANNEL } from './js/output.js';
+  const out = window.__output = new Output(document.getElementById('out'));
+  await out.files.init();
+  const ch = new BroadcastChannel(CHANNEL);
+  ch.onmessage = async e => {
+    const m = e.data;
+    if (m.type === 'show') { await out.setShow(m.json); document.getElementById('wait').textContent = 'Connected to the editor.'; }
+    else if (m.type === 'frame') out.frameState = m;
+  };
+  ch.postMessage({ type: 'hello' });                             // ask the editor for the show
+  let last = performance.now();
+  const loop = now => { out.draw(Math.min(0.1, (now - last) / 1000)); last = now; requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+  const hint = document.getElementById('hint');
+  let hintTimer = setTimeout(() => hint.classList.add('gone'), 8000);
+  const showHint = () => { hint.classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => hint.classList.add('gone'), 4000); };
+  const full = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {});
+  addEventListener('dblclick', full);
+  addEventListener('mousemove', showHint);
+  addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if (k === 'f') full(); else if (k === 's') out.stretch = !out.stretch; else if (k === 'b') out.blackout = !out.blackout;
+  });
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@ import { StageView } from './stage.js';
 import { TimelineView } from './timeline-view.js';
 import { Panels, AUDIO_EXT, VIDEO_EXT, OBJ_EXT } from './panels.js';
 import { el } from './ui.js';
+import { CHANNEL, frameMessage } from '../output.js';
 
 const $ = id => document.getElementById(id);
 const AUTOSAVE = 'maphappy-editor-show';
@@ -31,6 +32,23 @@ class Editor {
     this.stageView = new StageView(this, $('stage'), $('overlay'));
     this.timelineView = new TimelineView(this, $('timeline'));
     this.panels = new Panels(this, $('panel'));
+    // the projector output window(s): they say hello, then follow the show and the live state
+    this.output = new BroadcastChannel(CHANNEL);
+    this.outputs = false;
+    this.output.onmessage = e => { if (e.data?.type === 'hello') { this.outputs = true; this.sendShow(true); } };
+  }
+
+  // Sends the show to the output windows (at most ~8 times a second while dragging).
+  sendShow(now = false) {
+    if (!this.outputs) return;
+    clearTimeout(this.sendTimer);
+    const send = () => { this.lastSend = performance.now(); this.output.postMessage({ type: 'show', json: writeShow(this.show) }); };
+    if (now || performance.now() - (this.lastSend || 0) > 120) send(); else this.sendTimer = setTimeout(send, 120);
+  }
+  openOutput() {
+    const w = window.open('output.html', 'maphappy-output', 'popup,width=1024,height=600');
+    if (!w) this.status('The browser blocked the output window: allow pop-ups for this page, then press Output again.');
+    else this.status('Output window opened: drag it onto the projector, then double-click it for full screen.');
   }
 
   // ---------------------------------------------------------------- the show
@@ -59,6 +77,7 @@ class Editor {
     this.snapshot = JSON.stringify(writeShow(show));
     if (resetHistory) { this.undo = []; this.redo = []; this.savedSnapshot = this.snapshot; }
     this.panels.render();
+    this.sendShow(true);
     if (show.warnings.length) this.status(show.warnings.join(' · '));
   }
 
@@ -68,13 +87,14 @@ class Editor {
   defaultMedia() { return this.show.mediaList.some(m => m.id === this.selMedia) ? this.selMedia : 1; }
 
   // Something changed (while dragging): redraw, but don't make an undo step yet.
-  touched() { this.dirty = true; }
+  touched() { this.dirty = true; this.sendShow(); }
   // A finished change: an undo step, and the autosave picks it up.
   commit() {
     const snap = JSON.stringify(writeShow(this.show));
     if (snap !== this.snapshot) { this.undo.push(this.snapshot); if (this.undo.length > 100) this.undo.shift(); this.redo = []; this.snapshot = snap; }
     this.panels.refreshValues();
     this.updateTitle();
+    this.sendShow();
   }
   undoStep(back = true) {
     const from = back ? this.undo : this.redo, to = back ? this.redo : this.undo;
@@ -267,6 +287,7 @@ class Editor {
     applyTimeline(this.show, t);
     for (const m of this.show.media.values()) m.update(dt);
     this.renderer.renderStage(this.stageRT, this.show);
+    if (this.outputs) this.output.postMessage(frameMessage(this.show, t, this.blackout));   // the output window shows exactly this
     this.stageView.draw();
     this.timelineView.draw();
     $('time').textContent = `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
@@ -299,6 +320,7 @@ on('undo', () => ed.undoStep(true));
 on('redo', () => ed.undoStep(false));
 on('live', () => ed.setLive(!ed.live));
 on('present', () => present(true));
+on('output', () => ed.openOutput());
 on('viewInput', () => { ed.stageView.mode = ed.stageView.mode === 'input' ? 'output' : 'input'; $('viewInput').classList.toggle('on', ed.stageView.mode === 'input'); });
 $('snap').addEventListener('change', e => { ed.snap = e.target.checked; });
 on('marker', () => { ops.addMarker(ed.show, ed.clock.time); ed.commit(); });

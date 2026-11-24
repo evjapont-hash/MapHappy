@@ -84,11 +84,17 @@ the published page). Plain JavaScript and WebGL 2, drawing with the same rendere
 
 - **Surfaces**: quads, circles, triangles, lines, freeform polygons and 3D objects (built-in or your OBJ), warped
   by dragging their corners on the stage; an *Edit input region* view picks which part of the picture they show.
+  **Folders** organise them (drag surfaces onto a folder; hiding a folder hides all it holds).
+- **Masks** drawn on the stage: rectangles, ellipses and polygons, dragged by their corners and points.
+- **Speed**: *Spin* (degrees per second) for every surface and *Spin X/Y/Z* for 3D objects keep things turning
+  in time with the music, and every generator and video has a playback *Speed*.
+- **Projector output**: *Output ⧉* opens a window with only the stage, to drag onto the projector and make full
+  screen; it follows the editor live (edits, timeline, presets, blackout) and draws exactly the same picture.
 - **Inspector** with every parameter (appearance, transform, picture, colour, line width, 3D view, and the
   lighting: Unlit / Phong / Blinn-Phong / Toon, ambient, sun, point light, spotlight, material), and masks.
 - **Media**: generators (test card, grid, text, solid colour, gradient, strobe, lines) with all their settings;
   your song (MP3/WAV, with automatic tempo detection), videos (MP4/WebM) and OBJ models.
-- **Timeline**: the song's waveform and beat grid; ◆ next to any setting sets a keyframe at the playhead, and once a
+- **Timeline**: the song's waveform and beat grid (song clips can be moved, trimmed and split); ◆ next to any setting sets a keyframe at the playhead, and once a
   setting is animated, changing it adds keyframes. Drag keyframes (they snap to beats and markers), double-click a
   row to add one, right-click for Smooth / Linear / Hold or delete. Undo / redo for everything.
 - **Presets** on the keys 1–9 and 0, played live (Live mode), as on the desktop.

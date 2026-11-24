@@ -36,7 +36,7 @@ try {
   await send('Page.navigate', { url });
   let title = '';
   for (let i = 0; i < 600 && !/^(PASSED|FAILED)/.test(title); i++) { await sleep(200); title = (await evaluate('document.title')) || ''; }
-  console.log(await evaluate("document.getElementById('out')?.textContent || '(no results)'"));
+  console.log(await evaluate("(document.getElementById('out-log') || document.getElementById('out'))?.textContent || '(no results)'"));
   if (!/^PASSED/.test(title)) console.log(`result: ${title || 'timed out'}`);
   exit = /^PASSED/.test(title) ? 0 : 1;
   ws.close();
