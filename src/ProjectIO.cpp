@@ -67,7 +67,11 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
     for (const auto& m : p.media.items) {
         json o;
         o["id"] = m->id; o["name"] = m->name; o["playing"] = m->playing; o["loop"] = m->loop;
-        if (m->kind == MediaKind::Generator) { o["kind"] = "generator"; o["type"] = "pattern"; }
+        if (m->kind == MediaKind::Generator) {
+            o["kind"] = "generator";
+            if (const GeneratorSource* g = m->generator()) { const json gj = genToJson(g->settings); for (auto& kv : gj.items()) o[kv.key()] = kv.value(); }   // (a named copy: items() of a temporary would dangle)
+            else o["type"] = "pattern";                                       // the built-in test pattern
+        }
         else { o["kind"] = "video"; putPath(o, "path", m->path, base, haveBase); }
         media.push_back(o);
     }
@@ -194,7 +198,7 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
     auto warn = [&](const std::string& w) { report.warnings.push_back(w); };
 
     // ------------------------------------------------------------------ read and check everything first
-    struct PMedia { int id; std::string name, path, rel; bool playing, loop, isVideo; };
+    struct PMedia { int id; std::string name, path, rel; bool playing, loop, isVideo, isGen = false; GenSettings gen; };
     std::vector<PMedia> media;
     std::set<int> mediaIds = {MediaPool::kPatternId};
     bool patternPlaying = true, patternLoop = true;
@@ -207,7 +211,11 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
             pm.path = get<std::string>(m, "path", ""); pm.rel = get<std::string>(m, "pathRel", "");
             pm.playing = get<bool>(m, "playing", true); pm.loop = get<bool>(m, "loop", true);
             pm.isVideo = get<std::string>(m, "kind", "") == "video";
-            if (!pm.isVideo) { if (pm.id == MediaPool::kPatternId) { patternPlaying = pm.playing; patternLoop = pm.loop; } continue; }
+            if (!pm.isVideo) {
+                if (get<std::string>(m, "type", "pattern") == "pattern") { if (pm.id == MediaPool::kPatternId) { patternPlaying = pm.playing; patternLoop = pm.loop; } continue; }
+                if (!genFromJson(m, pm.gen, &report.warnings)) { warn("Skipped \"" + pm.name + "\", a generator this version of MapHappy doesn't know"); continue; }
+                pm.isGen = true;
+            }
             if (pm.id <= 1 || mediaIds.count(pm.id)) { warn("Skipped a media entry with a bad or repeated id"); continue; }
             mediaIds.insert(pm.id);
             media.push_back(pm);
@@ -375,6 +383,11 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
     if (MediaItem* pat = p.media.find(MediaPool::kPatternId)) { pat->playing = patternPlaying; pat->loop = patternLoop; }
 
     for (const PMedia& pm : media) {
+        if (pm.isGen) {
+            const int id = p.media.addGenerator(pm.gen, pm.id, pm.name);
+            if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; }
+            continue;
+        }
         std::string resolved = resolveStoredPath(base, pm.rel, pm.path);
         std::string err;
         int id = 0;

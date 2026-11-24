@@ -68,7 +68,8 @@ add_library(maphappy_core STATIC
   src/VideoDecoder.cpp
   src/Audio.cpp
   src/ProjectIO.cpp
-  src/PlatformFiles.cpp)
+  src/PlatformFiles.cpp
+  src/TextRaster.cpp)
 target_include_directories(maphappy_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${FFMPEG_INCLUDE_DIRS}

@@ -24,8 +24,12 @@ artwork from any commercial product and is not affiliated with one.
 - Perspective-correct corner-pin warping (a homography solved per surface and evaluated per pixel on
   the GPU, so grids stay straight, unlike splitting a quad into two triangles).
 - Anti-aliased edges, soft feathering, flips, opacity and **blend modes** (Over, Add, Multiply, Screen).
-- A shared **media pool**: video files (FFmpeg) and a built-in test pattern; many surfaces can share
-  one video, which is decoded once.
+- A shared **media pool**: video files (FFmpeg), a built-in test pattern, and **generators**; many
+  surfaces can share one item, which is decoded or drawn once per frame.
+- **Generators** (Media tab, "+ Generator"): Test Card (grid, colour bars, circle, corner marks, label and
+  resolution), Grid, Text (multi-line, ticker scrolling), Solid Colour, Gradient (linear or radial,
+  spinning, repeating), Strobe (rate, on time, fade) and Lines (count, angle, thickness, softness, speed).
+  Every parameter is edited in the Media inspector and saved with the project; each has its own resolution.
 
 **Animation**
 - A **Conductor** timeline with tracks, clips and keyframes (Linear / Smooth / Hold curves).
@@ -157,11 +161,12 @@ Every push builds and tests on Linux, Windows and macOS through GitHub Actions
 (`.github/workflows/ci.yml`).
 
 - **Unit tests** (`tests/unit`, no GPU): timeline engine, transforms, mixer and clock, beat detection
-  on synthetic songs of known tempo, file browser. Run on all three platforms.
+  on synthetic songs of known tempo, file browser, generator parameters and text layout. Run on all three platforms.
 - **GL tests** (`tests/gl`): pixel-readback checks of the renderer (warp, anti-aliasing, blend modes,
-  colour controls), the parameter table, and project save/load including damaged files.
+  colour controls), every generator's picture, the parameter table, and project save/load including damaged files.
 - **UI tests** (`tests/ui`): scripted mouse and keyboard sessions driving the real editor.
-  GL and UI tests run on Linux in CI under a virtual display with software OpenGL.
+  GL and UI tests run on Linux in CI under a virtual display with software OpenGL. They also run on a
+  desktop with a GPU (they open small windows while they run).
 
 ```
 cmake -S . -B build -DMAPHAPPY_BUILD_TESTS=ON -DMAPHAPPY_GL_TESTS=ON

@@ -1,5 +1,6 @@
 #pragma once
 #include "ContentSource.h"
+#include "GeneratorSource.h"
 #include "PatternSource.h"
 #include "SolidSource.h"
 #include "VideoSource.h"
@@ -19,6 +20,9 @@ struct MediaItem {
     bool playing = true, loop = true;
     bool missing = false;             // a video whose file wasn't found: source is a placeholder until relinked
 
+    // A generator made from GeneratorDefs.h (not the built-in test pattern). nullptr for anything else.
+    GeneratorSource* generator() { return kind == MediaKind::Generator ? dynamic_cast<GeneratorSource*>(source.get()) : nullptr; }
+    const GeneratorSource* generator() const { return kind == MediaKind::Generator ? dynamic_cast<const GeneratorSource*>(source.get()) : nullptr; }
     VideoSource* video() { return (kind == MediaKind::Video && !missing) ? static_cast<VideoSource*>(source.get()) : nullptr; }
     const VideoSource* video() const { return (kind == MediaKind::Video && !missing) ? static_cast<const VideoSource*>(source.get()) : nullptr; }
     float aspect() const {
@@ -65,6 +69,30 @@ public:
         int id = m->id;
         items.push_back(std::move(m));
         return id;
+    }
+
+    // A new generator. `name` empty = "<Type>" or "<Type> 2", "<Type> 3", ... Returns its id.
+    int addGenerator(const GenSettings& settings, int wantedId = 0, const std::string& name = "") {
+        auto m = std::make_unique<MediaItem>();
+        m->id = takeId(wantedId);
+        m->name = name.empty() ? uniqueName(genTypeInfo(settings.type).label) : name;
+        m->kind = MediaKind::Generator;
+        m->source = std::make_unique<GeneratorSource>(settings);
+        const int id = m->id;
+        items.push_back(std::move(m));
+        return id;
+    }
+    int addGenerator(GenType type) { return addGenerator(GenSettings::defaults(type)); }
+
+    // Generators whose picture size was changed get their new texture here. Frees textures: call it between frames.
+    void applyResizes() {
+        for (auto& m : items) if (GeneratorSource* g = m->generator()) g->applyResize();
+    }
+
+    std::string uniqueName(const std::string& base) const {
+        auto taken = [&](const std::string& n) { for (auto& m : items) if (m->name == n) return true; return false; };
+        if (!taken(base)) return base;
+        for (int i = 2;; i++) { std::string n = base + " " + std::to_string(i); if (!taken(n)) return n; }
     }
 
     // A stand-in for a video file that can't be found.

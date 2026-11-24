@@ -146,6 +146,7 @@ public:
             if (selectedMediaId_ == id) selectedMediaId_ = 0;
         }
         pendingRemoveMedia_.clear();
+        proj_.media.applyResizes();                                // a generator given a new picture size gets its new texture
 
         if (relinkMediaId_) {                                      // swapping a video's source frees its old texture
             std::string err;
@@ -294,8 +295,10 @@ private:
         ImGui::SetNextWindowSize(ImVec2(width, height));
         ImGui::Begin("##toolbar", nullptr, kPanel | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
         if (tabButton("Media", leftTab_ == 0))    leftTab_ = 0;
+        recordRect("tab:Media");
         ImGui::SameLine();
         if (tabButton("Surfaces", leftTab_ == 1)) leftTab_ = 1;
+        recordRect("tab:Surfaces");
         ImGui::SameLine(0, 40);
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("Views:");
@@ -892,6 +895,58 @@ private:
         if (n == 0) ImGui::TextDisabled("None yet");
     }
 
+    void drawAddGeneratorButton() {
+        const bool clicked = ImGui::Button("+ Generator");
+        recordRect("button:+ Generator");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add a test card, grid, text, colour, gradient, strobe or line pattern");
+        if (clicked) ImGui::OpenPopup("##addgen");
+        if (ImGui::BeginPopup("##addgen")) {
+            for (const GenTypeInfo& t : genTypes())
+                if (ImGui::MenuItem(t.label)) selectedMediaId_ = proj_.media.addGenerator(t.type);
+            ImGui::EndPopup();
+        }
+    }
+
+    // Every parameter of a generator, straight from its table in GeneratorDefs.h.
+    void drawGeneratorInspector(GeneratorSource& g) {
+        GenSettings& s = g.settings;
+        const GenTypeInfo& info = genTypeInfo(s.type);
+        ImGui::SeparatorText(info.label);
+        for (const GenParamDef& d : info.params) {
+            ImGui::PushID(d.key);
+            switch (d.kind) {
+                case GenParamKind::Float: { float v = s.num(d.key); if (ImGui::SliderFloat(d.label, &v, d.min, d.max, d.fmt)) s.setNum(d.key, v); } break;
+                case GenParamKind::Int:   { int v = (int)std::lround(s.num(d.key)); if (ImGui::SliderInt(d.label, &v, (int)d.min, (int)d.max)) s.setNum(d.key, (float)v); } break;
+                case GenParamKind::Bool:  { bool v = s.num(d.key) >= 0.5f; if (ImGui::Checkbox(d.label, &v)) s.setNum(d.key, v ? 1.0f : 0.0f); } break;
+                case GenParamKind::Color: { GenColor c = s.color(d.key); if (ImGui::ColorEdit4(d.label, c.data(), ImGuiColorEditFlags_AlphaBar)) s.setColor(d.key, c); } break;
+                case GenParamKind::Choice: {
+                    int v = (int)std::lround(s.num(d.key));
+                    if (ImGui::BeginCombo(d.label, d.choices[std::max(0, std::min((int)d.choices.size() - 1, v))].label)) {
+                        for (int i = 0; i < (int)d.choices.size(); i++) if (ImGui::Selectable(d.choices[i].label, i == v)) s.setNum(d.key, (float)i);
+                        ImGui::EndCombo();
+                    }
+                } break;
+                case GenParamKind::Text: {
+                    char buf[2048];
+                    std::snprintf(buf, sizeof(buf), "%s", s.text(d.key).c_str());
+                    if (ImGui::InputTextMultiline(d.label, buf, sizeof(buf), ImVec2(0, ImGui::GetTextLineHeight() * 3.5f))) s.setText(d.key, buf);
+                } break;
+            }
+            { const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();         // the control itself, not its label (like the surface sliders)
+              const float w = d.kind == GenParamKind::Bool ? b.x - a.x : std::min(b.x - a.x, ImGui::CalcItemWidth());
+              rects_[std::string("gen:") + d.key] = Rect{a.x, a.y, w, b.y - a.y, true}; }
+            ImGui::PopID();
+        }
+        int wh[2] = {s.width, s.height};
+        if (ImGui::InputInt2("Size (px)", wh, ImGuiInputTextFlags_EnterReturnsTrue)) s.setSize(wh[0], wh[1]);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The generator's own resolution. Type a size and press Enter.");
+        const bool match = ImGui::Button("Match output");
+        recordRect("button:Match output");
+        if (match) s.setSize(proj_.outW, proj_.outH);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset parameters")) { const int w = s.width, h = s.height; s = GenSettings::defaults(s.type); s.setSize(w, h); }
+    }
+
     void drawMediaPanel(ImVec2 pos, ImVec2 size) {
         ImGui::SetNextWindowPos(pos);
         ImGui::SetNextWindowSize(size);
@@ -903,13 +958,16 @@ private:
         if (!status_.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error: %s", status_.c_str());
 
         ImGui::SeparatorText("Generators");
+        drawAddGeneratorButton();
         drawMediaThumbs(MediaKind::Generator);
         ImGui::SeparatorText("Videos");
         drawMediaThumbs(MediaKind::Video);
 
         if (MediaItem* m = proj_.media.find(selectedMediaId_)) {
             ImGui::SeparatorText("Inspector");
-            ImGui::Text("%s", m->name.c_str());
+            char nameBuf[128];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", m->name.c_str());
+            if (ImGui::InputText("Name##media", nameBuf, sizeof(nameBuf)) && nameBuf[0]) m->name = nameBuf;
             if (m->missing) {
                 ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "File not found");
                 ImGui::TextDisabled("%s", m->path.c_str());
@@ -929,8 +987,15 @@ private:
                 ImGui::SameLine();
                 if (ImGui::Button("Restart")) { std::string p = m->path; m->video()->open(p); }
             }
+            if (GeneratorSource* g = m->generator()) {
+                ImGui::SameLine();
+                if (ImGui::Button("Restart")) g->restart();
+                drawGeneratorInspector(*g);
+            }
             if (Surface* s = proj_.selected()) {
-                if (ImGui::Button("Use on selected surface")) s->mediaId = m->id;
+                const bool use = ImGui::Button("Use on selected surface");
+                recordRect("button:Use on selected surface");
+                if (use) s->mediaId = m->id;
             }
             if (m->id != MediaPool::kPatternId) {
                 ImGui::SameLine();
