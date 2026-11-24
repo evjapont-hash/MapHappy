@@ -23,8 +23,11 @@ artwork from any commercial product and is not affiliated with one.
   polygons (drag points; double-click an edge to add one, right-click a point to delete it), each with an
   *input* region (what part of the media it shows) and an *output* quad (where it lands on the stage).
 - **3D objects**: a cube, sphere, cylinder, plane or your own OBJ model wears the media as its texture
-  (the input region picks which part), is turned and lit in a virtual camera (turn X/Y/Z, size, field
-  of view, shading, all animatable), and the result is mapped onto the stage by the quad like any surface.
+  (the input region picks which part), is turned in a virtual camera (turn X/Y/Z, size, field of view) and
+  mapped onto the stage by the quad like any surface.
+- **Lighting** for 3D objects: Phong, Blinn-Phong or Toon shading (or Unlit), each its own shader program,
+  with an ambient term, a directional "sun", a point light and a spotlight (position, colour, strength, cone),
+  and a material (diffuse, specular, shininess). Every light setting is animatable on the timeline.
 - **Folders** to organise surfaces: nest them, drag surfaces and folders onto them (or right-click >
   Move to), and untick a folder to hide everything inside it. New surfaces go into the selected folder;
   deleting a folder keeps what was in it.
@@ -73,6 +76,28 @@ artwork from any commercial product and is not affiliated with one.
 - **Projects** saved as readable JSON (git-friendly), with relative media paths so a project folder
   can be moved or shared, atomic saves, autosave and crash recovery, and an unsaved-changes prompt.
 - Missing media never blocks opening a project: it becomes a placeholder you can relink.
+
+## Web player
+
+`web/` is a player for MapHappy shows that runs in any browser: plain JavaScript and WebGL 2, no libraries
+and no build step. It reads a `.maphappy` project directly and draws it with the **same shaders** as the
+desktop app (copied out of the C++ headers by `web/tools/extract-shaders.mjs`), so a show looks the same on
+the web as in the editor: surfaces, warps, masks, folders, generators, 3D objects and their lighting, the
+timeline locked to the music, and the live presets on the number keys. Videos play through the browser.
+
+- **Make a show**: save your project as `web/show/show.maphappy` and keep its song, videos and models in that
+  folder (or folders inside it); MapHappy stores paths relative to the project, which is what the player uses.
+  Use browser-friendly media: MP3 or WAV songs, MP4 (H.264) or WebM videos. `web/show/` holds a demo show
+  (made by `web/tools/make-demo-show.py`, with a synthesized beat) to start from.
+- **Try it**: `cd web && python -m http.server 8000`, then open <http://localhost:8000>. Or open `web/index.html`
+  and drop the project file and its media onto the page.
+- **Publish it**: in the repository's Settings > Pages, set Source to "GitHub Actions". Every push that changes
+  `web/` then publishes it (`.github/workflows/pages.yml`) at `https://<user>.github.io/MapHappy/`.
+- Edit the page's header (title, name, description) in `web/index.html`.
+- Keys: Space play/pause, arrows seek, Home restart, 1..9/0 presets, L switches the lighting shader
+  (Unlit, Phong, Blinn-Phong, Toon: each its own program), B blackout, F full screen, H hide the info.
+- Tests: `node --test web/tests/unit.test.mjs`, and `web/tests/browser.html` in a browser (CI runs both, the
+  latter in headless Chrome).
 
 ## Quick start
 

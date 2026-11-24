@@ -1,0 +1,664 @@
+{
+  "format": "maphappy",
+  "version": 1,
+  "output": {
+    "width": 1920,
+    "height": 1080
+  },
+  "media": [
+    {
+      "id": 1,
+      "name": "Test Pattern",
+      "playing": true,
+      "loop": true,
+      "kind": "generator",
+      "type": "pattern"
+    },
+    {
+      "id": 2,
+      "name": "Gradient",
+      "playing": true,
+      "loop": true,
+      "kind": "generator",
+      "type": "gradient",
+      "width": 1920,
+      "height": 1080,
+      "params": {
+        "colorA": [
+          0.02,
+          0.03,
+          0.15,
+          1
+        ],
+        "colorB": [
+          0.35,
+          0.05,
+          0.4,
+          1
+        ],
+        "style": "radial",
+        "angle": 0,
+        "spin": 0,
+        "repeat": 2,
+        "scroll": 0.15
+      }
+    },
+    {
+      "id": 3,
+      "name": "Lines",
+      "playing": true,
+      "loop": true,
+      "kind": "generator",
+      "type": "lines",
+      "width": 1024,
+      "height": 1024,
+      "params": {
+        "count": 10,
+        "thickness": 0.35,
+        "softness": 0.2,
+        "angle": 45,
+        "speed": 1.0,
+        "color": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "background": [
+          0.1,
+          0.45,
+          0.6,
+          1
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "name": "Title",
+      "playing": true,
+      "loop": true,
+      "kind": "generator",
+      "type": "text",
+      "width": 1920,
+      "height": 200,
+      "params": {
+        "text": "GRAPHICS  BLINK",
+        "font": "sans",
+        "align": "center",
+        "size": 0.6,
+        "posY": 0.5,
+        "color": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "background": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scroll": 0
+      }
+    }
+  ],
+  "surfaces": [
+    {
+      "flipH": false,
+      "flipV": false,
+      "blend": "over",
+      "folder": 0,
+      "id": 1,
+      "name": "Cube",
+      "shape": "object3d",
+      "media": 3,
+      "in": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "out": [
+        [
+          0.3,
+          0.12
+        ],
+        [
+          0.7,
+          0.12
+        ],
+        [
+          0.7,
+          0.83
+        ],
+        [
+          0.3,
+          0.83
+        ]
+      ],
+      "mesh": "cube",
+      "rotX": -20,
+      "rotY": 30,
+      "objScale": 1,
+      "fov": 40,
+      "shading": 1,
+      "lightModel": 2,
+      "ambient": 0.12,
+      "kd": 1,
+      "ks": 0.8,
+      "shininess": 48,
+      "dirIntensity": 0.7,
+      "dirAzimuth": -40,
+      "dirElevation": 35,
+      "pointIntensity": 1.6,
+      "pointX": 2,
+      "pointY": 0.5,
+      "pointZ": 2,
+      "pointRange": 3,
+      "pointR": 1,
+      "pointG": 0.35,
+      "pointB": 0.2,
+      "spotIntensity": 0,
+      "spotX": -2,
+      "spotY": 2.5,
+      "spotZ": 3,
+      "spotAngle": 22,
+      "spotSoftness": 0.4,
+      "spotR": 0.3,
+      "spotG": 0.8,
+      "spotB": 1
+    },
+    {
+      "flipH": false,
+      "flipV": false,
+      "blend": "add",
+      "folder": 0,
+      "id": 3,
+      "name": "Title",
+      "shape": "quad",
+      "media": 4,
+      "in": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "out": [
+        [
+          0.1,
+          0.86
+        ],
+        [
+          0.9,
+          0.86
+        ],
+        [
+          0.9,
+          0.97
+        ],
+        [
+          0.1,
+          0.97
+        ]
+      ],
+      "opacity": 0.0
+    },
+    {
+      "flipH": false,
+      "flipV": false,
+      "blend": "over",
+      "folder": 0,
+      "id": 2,
+      "name": "Backdrop",
+      "shape": "quad",
+      "media": 2,
+      "in": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "out": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "opacity": 1
+    }
+  ],
+  "folders": [],
+  "presets": [
+    {
+      "slot": 0,
+      "key": 1,
+      "name": "Warm",
+      "fade": 0.5,
+      "surfaces": [
+        {
+          "id": 1,
+          "media": 3,
+          "values": {
+            "pointR": 1,
+            "pointG": 0.35,
+            "pointB": 0.2,
+            "ambient": 0.12,
+            "hue": 0,
+            "ks": 0.8
+          }
+        }
+      ],
+      "folders": []
+    },
+    {
+      "slot": 1,
+      "key": 2,
+      "name": "Ice",
+      "fade": 0.8,
+      "surfaces": [
+        {
+          "id": 1,
+          "media": 3,
+          "values": {
+            "pointR": 0.2,
+            "pointG": 0.6,
+            "pointB": 1,
+            "ambient": 0.25,
+            "hue": 160,
+            "ks": 1.5
+          }
+        }
+      ],
+      "folders": []
+    },
+    {
+      "slot": 2,
+      "key": 3,
+      "name": "Spotlight",
+      "fade": 0.3,
+      "surfaces": [
+        {
+          "id": 1,
+          "media": 3,
+          "values": {
+            "spotIntensity": 4,
+            "dirIntensity": 0,
+            "pointIntensity": 0,
+            "ambient": 0.02
+          }
+        }
+      ],
+      "folders": []
+    },
+    {
+      "slot": 9,
+      "key": 0,
+      "name": "Dark",
+      "fade": 1.5,
+      "surfaces": [
+        {
+          "id": 1,
+          "media": 3,
+          "values": {
+            "opacity": 0
+          }
+        }
+      ],
+      "folders": []
+    }
+  ],
+  "audioAssets": [
+    {
+      "id": 1,
+      "name": "demo-beat.wav",
+      "bpm": 120,
+      "beatOffset": 0,
+      "path": "music/demo-beat.wav",
+      "pathRel": "music/demo-beat.wav"
+    }
+  ],
+  "timeline": {
+    "length": 32.0,
+    "tracks": [
+      {
+        "id": 1,
+        "kind": "param",
+        "name": "",
+        "path": "surface/1/rotY",
+        "muted": false,
+        "clipData": [
+          {
+            "keys": [
+              {
+                "t": 0,
+                "v": 30,
+                "curve": "linear"
+              },
+              {
+                "t": 4.0,
+                "v": 390,
+                "curve": "linear"
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": 101,
+            "name": "Clip-1-1",
+            "start": 0,
+            "duration": 32.0,
+            "ghost": false,
+            "data": 0
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "kind": "param",
+        "name": "",
+        "path": "surface/1/pointX",
+        "muted": false,
+        "clipData": [
+          {
+            "keys": [
+              {
+                "t": 0,
+                "v": 2.5,
+                "curve": "smooth"
+              },
+              {
+                "t": 2.0,
+                "v": -2.5,
+                "curve": "smooth"
+              },
+              {
+                "t": 4.0,
+                "v": 2.5,
+                "curve": "smooth"
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": 201,
+            "name": "Clip-2-1",
+            "start": 0,
+            "duration": 32.0,
+            "ghost": false,
+            "data": 0
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "kind": "param",
+        "name": "",
+        "path": "surface/1/lightModel",
+        "muted": false,
+        "clipData": [
+          {
+            "keys": [
+              {
+                "t": 0,
+                "v": 2,
+                "curve": "hold"
+              },
+              {
+                "t": 8.0,
+                "v": 1,
+                "curve": "hold"
+              },
+              {
+                "t": 16.0,
+                "v": 3,
+                "curve": "hold"
+              },
+              {
+                "t": 24.0,
+                "v": 2,
+                "curve": "hold"
+              },
+              {
+                "t": 32.0,
+                "v": 2,
+                "curve": "hold"
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": 301,
+            "name": "Clip-3-1",
+            "start": 0,
+            "duration": 32.0,
+            "ghost": false,
+            "data": 0
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "kind": "param",
+        "name": "",
+        "path": "surface/1/spotIntensity",
+        "muted": false,
+        "clipData": [
+          {
+            "keys": [
+              {
+                "t": 0,
+                "v": 0,
+                "curve": "linear"
+              },
+              {
+                "t": 1.0,
+                "v": 3,
+                "curve": "linear"
+              },
+              {
+                "t": 15.0,
+                "v": 3,
+                "curve": "linear"
+              },
+              {
+                "t": 16.0,
+                "v": 0,
+                "curve": "linear"
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": 401,
+            "name": "Clip-4-1",
+            "start": 8.0,
+            "duration": 16.0,
+            "ghost": false,
+            "data": 0
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "kind": "param",
+        "name": "",
+        "path": "surface/1/dirIntensity",
+        "muted": false,
+        "clipData": [
+          {
+            "keys": [
+              {
+                "t": 0,
+                "v": 1.4,
+                "curve": "linear"
+              },
+              {
+                "t": 0.25,
+                "v": 0.4,
+                "curve": "linear"
+              },
+              {
+                "t": 0.5,
+                "v": 1.4,
+                "curve": "linear"
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": 501,
+            "name": "Clip-5-1",
+            "start": 0,
+            "duration": 32.0,
+            "ghost": false,
+            "data": 0
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "kind": "param",
+        "name": "",
+        "path": "surface/3/opacity",
+        "muted": false,
+        "clipData": [
+          {
+            "keys": [
+              {
+                "t": 0,
+                "v": 0,
+                "curve": "smooth"
+              },
+              {
+                "t": 2.0,
+                "v": 0,
+                "curve": "smooth"
+              },
+              {
+                "t": 3.0,
+                "v": 1,
+                "curve": "smooth"
+              },
+              {
+                "t": 30.0,
+                "v": 1,
+                "curve": "smooth"
+              },
+              {
+                "t": 32.0,
+                "v": 0,
+                "curve": "smooth"
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": 601,
+            "name": "Clip-6-1",
+            "start": 0,
+            "duration": 32.0,
+            "ghost": false,
+            "data": 0
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "kind": "audio",
+        "name": "Audio-1",
+        "path": "audio/1",
+        "muted": false,
+        "audioClips": [
+          {
+            "id": 900,
+            "name": "demo-beat",
+            "asset": 1,
+            "start": 0,
+            "duration": 32.0,
+            "offset": 0,
+            "gain": 1
+          }
+        ]
+      }
+    ],
+    "markers": [],
+    "counters": {
+      "track": 8,
+      "clip": 1000,
+      "marker": 1,
+      "audioTrack": 1
+    }
+  },
+  "transport": {
+    "avOffset": 0,
+    "loop": true
+  },
+  "counters": {
+    "surface": 4,
+    "asset": 2,
+    "folder": 1,
+    "shape": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1
+    ]
+  }
+}

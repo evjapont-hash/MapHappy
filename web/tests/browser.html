@@ -1,0 +1,8 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MapHappy web player: browser tests</title>
+<!-- Runs the real player code in a browser and checks the pixels it draws. Results appear below and in the
+     page title ("PASSED n" / "FAILED n"). CI runs it with headless Chrome: see .github/workflows/ci.yml. -->
+<canvas id="c" width="16" height="16"></canvas>
+<pre id="out">running...</pre>
+<script type="module" src="browser-test.js"></script>

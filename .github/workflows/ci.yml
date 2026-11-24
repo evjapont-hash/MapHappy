@@ -42,8 +42,20 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # The web player: plain JS, tested with Node and in headless Chrome (both preinstalled on the runner)
+      - name: Web player tests
+        run: |
+          node web/tools/extract-shaders.mjs --check
+          node --test web/tests/unit.test.mjs
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory web > /dev/null 2>&1 &
+          sleep 1
+          google-chrome --headless=new --no-sandbox --use-angle=swiftshader --enable-unsafe-swiftshader \
+            --virtual-time-budget=15000 --dump-dom http://127.0.0.1:8765/tests/browser.html > browser-tests.html
+          sed -n '/<pre id="out">/,/<\/pre>/p' browser-tests.html
+          grep -q "ALL CHECKS PASSED" browser-tests.html
+
       - name: Test
-        run: xvfb-run -a -s "-screen 0 3840x1080x24" ctest --test-dir build --output-on-failure
+        run: xvfb-run -a -s "-screen 0 3840x1080x24" ctest --test-dir build --output-on-failure --timeout 120
 
   # Builds the app on Windows (FFmpeg through vcpkg) and runs the unit tests, which need no graphics card.
   windows:

@@ -1,0 +1,35 @@
+name: Web player
+
+# Publishes web/ (the player and the show in web/show/) to GitHub Pages, so anyone can watch the show at
+#   https://<your-user-name>.github.io/MapHappy/
+# One-time setup: repository Settings > Pages > Build and deployment > Source: "GitHub Actions".
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the shaders match the desktop app
+        run: node web/tools/extract-shaders.mjs --check
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4

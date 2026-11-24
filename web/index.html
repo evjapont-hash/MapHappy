@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MapHappy Web Player</title>
+<style>
+  :root { --bg: #111214; --panel: #1b1c20; --text: #e7e7ea; --dim: #9a9aa3; --accent: #26c6d0; --border: #2a2b31; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  header { padding: 20px clamp(16px, 4vw, 48px) 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { margin: 0; font-size: clamp(22px, 3vw, 32px); letter-spacing: 0.01em; }
+  header h1 .accent { color: var(--accent); }
+  .byline { margin: 2px 0 12px; color: var(--dim); }
+  .columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px 40px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 8px 0 4px; }
+  p { margin: 0 0 8px; }
+  table.keys { border-collapse: collapse; }
+  table.keys td { padding: 2px 14px 2px 0; vertical-align: top; }
+  kbd { display: inline-block; min-width: 1.6em; padding: 0 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: #24252b; font: 13px/1.6 ui-monospace, Consolas, monospace; text-align: center; }
+  #player { position: relative; height: min(72vh, 56.25vw); min-height: 240px; background: #000; }
+  #player:fullscreen { height: 100vh; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #start { position: absolute; inset: 0; margin: auto; width: max-content; height: max-content; padding: 14px 28px; font: 600 18px system-ui, sans-serif;
+           color: #001214; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+  #hud { position: absolute; left: 12px; bottom: 8px; color: #fff; font: 13px ui-monospace, Consolas, monospace; text-shadow: 0 1px 2px #000; white-space: pre; pointer-events: none; }
+  #status { padding: 8px clamp(16px, 4vw, 48px); color: var(--dim); font-size: 13px; }
+  #status.error { color: #ff8080; }
+  body.hide-info header, body.hide-info #status, body.hide-info #hud { display: none; }
+  body.hide-info #player { height: 100vh; }
+</style>
+</head>
+<body>
+<header>
+  <!-- EDIT ME: your show's title, your name, and what the show is about -->
+  <h1><span class="accent">MapHappy</span> &middot; <span id="showname">Show</span></h1>
+  <p class="byline">by <strong>Your Name</strong> &middot; Graphics-BLINK, Project 3</p>
+  <div class="columns">
+    <section>
+      <h2>About this show</h2>
+      <p>Write a few sentences about your show here: the song, the idea, and what to watch for.</p>
+      <p>It is a light, colour and texture show for a 3D model, set to music and timed to the beat. It was
+         choreographed in MapHappy (my projection-mapping tool) and is played here by a renderer written in plain
+         JavaScript and WebGL 2, with no graphics libraries. Every surface, texture generator and light is drawn by
+         my own shaders: Phong, Blinn-Phong and Toon lighting with ambient, directional, point and spot lights,
+         each light model its own fragment shader program, swapped with <code>useProgram</code>.</p>
+    </section>
+    <section>
+      <h2>How to use it</h2>
+      <table class="keys">
+        <tr><td>Click <b>Start the show</b></td><td>starts the music and the show</td></tr>
+        <tr><td><kbd>Space</kbd></td><td>pause / play</td></tr>
+        <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd> &nbsp;<kbd>Home</kbd></td><td>back / forward 5 seconds, back to the start</td></tr>
+        <tr><td><kbd>1</kbd>&hellip;<kbd>9</kbd> <kbd>0</kbd></td><td>play a live preset (a different look, faded in)</td></tr>
+        <tr><td><kbd>L</kbd></td><td>switch the lighting shader: the show's own, then Unlit, Phong, Blinn-Phong, Toon</td></tr>
+        <tr><td><kbd>B</kbd></td><td>blackout</td></tr>
+        <tr><td><kbd>F</kbd> &nbsp;<kbd>H</kbd></td><td>full screen, hide / show this information</td></tr>
+      </table>
+    </section>
+  </div>
+</header>
+<div id="player">
+  <canvas id="stage"></canvas>
+  <button id="start" hidden>&#9654; Start the show</button>
+  <div id="hud"></div>
+</div>
+<div id="status">Loading...</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
