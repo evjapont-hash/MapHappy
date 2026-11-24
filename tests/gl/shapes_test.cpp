@@ -65,8 +65,11 @@ int main() {
 
     // ---- save and load
     { p.surfaces.clear(); p.outW = 1920; p.outH = 1080;
-      Surface& l = p.addSurface(Shape::Line, orange); l.lineA = {0.1f, 0.2f}; l.lineB = {0.6f, 0.9f}; l.lineWidth = 0.03f;
-      Surface& f = p.addSurface(Shape::Freeform, orange); f.poly = {{0, 0}, {1, 0.1f}, {0.7f, 0.9f}, {0.2f, 1.0f}};
+      // ids, not references: addSurface inserts at the front, which moves the surfaces already there
+      const int lineId = p.addSurface(Shape::Line, orange).id;
+      { Surface& l = *p.find(lineId); l.lineA = {0.1f, 0.2f}; l.lineB = {0.6f, 0.9f}; l.lineWidth = 0.03f; }
+      const int freeId = p.addSurface(Shape::Freeform, orange).id;
+      p.find(freeId)->poly = {{0, 0}, {1, 0.1f}, {0.7f, 0.9f}, {0.2f, 1.0f}};
       p.syncLines();
       const std::string text = projectToJson(p, "");
       Project q; LoadReport rep;
@@ -74,18 +77,19 @@ int main() {
       for (auto& w : rep.warnings) std::printf("  load warning: %s\n", w.c_str());
       expect("lines and freeform surfaces load back with no warnings", ok && rep.warnings.empty() && q.surfaces.size() == 2);
       expect("...exactly as saved", projectToJson(q, "") == text);
-      const Surface* ql = q.find(l.id); const Surface* qf = q.find(f.id);
+      const Surface* ql = q.find(lineId); const Surface* qf = q.find(freeId);
       expect("...with the line's ends and width", ql && ql->shape == Shape::Line && nearf(ql->lineB.y, 0.9f, 1e-6) && nearf(ql->lineWidth, 0.03f, 1e-6));
       expect("...and the freeform points", qf && qf->shape == Shape::Freeform && qf->poly.size() == 4 && nearf(qf->poly[3].x, 0.2f, 1e-6));
+      if (!ql || !qf) return finishTest();
       expect("new surfaces are named per shape", ql->name.rfind("Line-", 0) == 0 && qf->name.rfind("Freeform-", 0) == 0);
       { json k = json::parse(text); for (auto& s : k["surfaces"]) if (s["shape"] == "freeform") s["points"][1] = json::array({1.7, -0.4});
         Project c; LoadReport rc; loadProjectFromJson(c, k.dump(), "", rc);
-        expect("a freeform point outside its quad is brought back to the quad's edge on loading", nearf(c.find(f.id)->poly[1].x, 1.0f, 1e-6) && nearf(c.find(f.id)->poly[1].y, 0.0f, 1e-6)); }
+        expect("a freeform point outside its quad is brought back to the quad's edge on loading", nearf(c.find(freeId)->poly[1].x, 1.0f, 1e-6) && nearf(c.find(freeId)->poly[1].y, 0.0f, 1e-6)); }
 
       json j = json::parse(text);
       for (auto& s : j["surfaces"]) { if (s["shape"] == "line") s["lineB"] = s["lineA"]; if (s["shape"] == "freeform") s["points"] = json::array({json::array({0, 0}), json::array({1, "x"})}); }
       Project r; LoadReport rep2;
-      expect("damaged line ends and freeform points are reset, with warnings", loadProjectFromJson(r, j.dump(), "", rep2) && rep2.warnings.size() == 2 && r.find(f.id)->poly.size() == 6 && nearf(r.find(l.id)->lineB.x, Surface().lineB.x, 1e-6));
+      expect("damaged line ends and freeform points are reset, with warnings", loadProjectFromJson(r, j.dump(), "", rep2) && rep2.warnings.size() == 2 && r.find(freeId)->poly.size() == 6 && nearf(r.find(lineId)->lineB.x, Surface().lineB.x, 1e-6));
       j["counters"]["shape"] = json::array({4, 5, 6});
       Project old; LoadReport rep3;
       expect("files from before lines and freeforms existed (3 shape counters) still load", loadProjectFromJson(old, j.dump(), "", rep3) && old.counters().shape[2] >= 6); }
