@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read          # deploy-pages looks up the uploaded artifact through the Actions API
   contents: read
   pages: write
   id-token: write
