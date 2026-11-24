@@ -57,7 +57,7 @@ int main() {
     GlContext gl; if (!gl.ok) return skipTest("no OpenGL 3.3 context available");
 
     TempDir tmp("saveload"); const fs::path root = tmp.path();
-    setTestEnv("HOME", (root / "home").u8string()); setTestEnv("XDG_CONFIG_HOME", (root / "cfg").u8string()); setTestEnv("APPDATA", (root / "cfg").u8string());
+    setTestEnv("HOME", (root / "home").u8string()); setTestEnv("USERPROFILE", (root / "home").u8string()); setTestEnv("XDG_CONFIG_HOME", (root / "cfg").u8string()); setTestEnv("APPDATA", (root / "cfg").u8string());
     fs::create_directories(root / "proj" / "media"); fs::create_directories(root / "proj" / "music");
     fs::copy_file(videoSrc, root / "proj" / "media" / "testvideo.mp4");
     writeSyntheticSongFile((root / "proj" / "music" / "song.wav").u8string(), 130, 0.17, 30.0, SongPattern::House);

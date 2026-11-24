@@ -42,7 +42,8 @@ public:
 
     explicit UiTest(int w = 1600, int h = 900) : gl(w, h), home("ui") {
         if (!gl.ok) return;
-        setTestEnv("HOME", home.str()); setTestEnv("XDG_CONFIG_HOME", home.file("cfg")); setTestEnv("APPDATA", home.file("cfg"));
+        // USERPROFILE is where Windows finds Documents; without it a test could save into the real user's folders
+        setTestEnv("HOME", home.str()); setTestEnv("USERPROFILE", home.str()); setTestEnv("XDG_CONFIG_HOME", home.file("cfg")); setTestEnv("APPDATA", home.file("cfg"));
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGui::GetIO().IniFilename = nullptr;

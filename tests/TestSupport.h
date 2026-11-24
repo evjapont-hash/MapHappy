@@ -43,6 +43,8 @@ inline void setTestEnv(const std::string& key, const std::string& value) {
     setenv(key.c_str(), value.c_str(), 1);
 #endif
 }
+// Two spellings of the same path ("C:/a/b" and "C:\a\b" on Windows) count as equal.
+inline bool samePath(const std::string& a, const std::string& b) { return std::filesystem::u8path(a).lexically_normal() == std::filesystem::u8path(b).lexically_normal(); }
 inline std::string getTestEnv(const char* key) { const char* v = std::getenv(key); return v ? v : ""; }
 
 // A scratch folder that is deleted again afterwards.
