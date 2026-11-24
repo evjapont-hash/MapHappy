@@ -28,7 +28,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check the shaders match the desktop app
         run: node web/tools/extract-shaders.mjs --check
-      - uses: actions/upload-pages-artifact@v3
+      - name: Pages is set up for this repository
+        uses: actions/configure-pages@v5            # fails with a clear message if Settings > Pages isn't set to "GitHub Actions"
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: web
       - id: deployment
