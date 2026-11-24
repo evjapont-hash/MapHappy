@@ -56,6 +56,9 @@ int main() {
     expect("...the space around the model stays empty (transparent)", isBlack(px(10, 10)) && isBlack(px(390, 390)) && isBlack(px(200, 10)));
     expect("...and the model has its own texture, sized like its quad", renderer.objectTexture(id) != 0 && renderer.objectTextureWidth(id) == 400 && renderer.objectTextureHeight(id) == 400);
 
+    S().rotY = 0; S().spinY = 22.5f; S().clock = 2.0; draw();
+    expect("spin Y 22.5 deg/s, 2 s into the show: turned 45 degrees (two faces meet in the middle)", isBlue(px(185, 200)) && isRed(px(215, 200)));
+    S().spinY = 0; S().clock = 0;
     S().rotY = 45; draw();
     expect("turned 45 degrees: two faces, meeting at the middle (blue half of the left face, red half of the right)", isBlue(px(185, 200)) && isRed(px(215, 200)));
     expect("...and the depth test hides the faces behind (the outer halves show their own colours)", isRed(px(85, 200)) && isBlue(px(315, 200)));

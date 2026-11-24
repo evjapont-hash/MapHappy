@@ -18,6 +18,7 @@ struct MediaItem {
     std::string path;
     std::unique_ptr<ContentSource> source;
     bool playing = true, loop = true;
+    float speed = 1.0f;               // how fast it plays (generators' animation, videos): 0 = frozen, 2 = twice as fast
     bool missing = false;             // a video whose file wasn't found: source is a placeholder until relinked
 
     // A generator made from GeneratorDefs.h (not the built-in test pattern). nullptr for anything else.
@@ -126,7 +127,7 @@ public:
     void clearAllButPattern() {
         items.erase(std::remove_if(items.begin(), items.end(), [](const std::unique_ptr<MediaItem>& m) { return m->id != kPatternId; }), items.end());
         nextId_ = 2;
-        if (MediaItem* p = find(kPatternId)) { p->playing = true; p->loop = true; }
+        if (MediaItem* p = find(kPatternId)) { p->playing = true; p->loop = true; p->speed = 1.0f; }
     }
     void ensureNextIdAbove(int id) { if (nextId_ <= id) nextId_ = id + 1; }
     int  nextId() const { return nextId_; }
@@ -153,7 +154,7 @@ public:
     void update(double dt) {
         for (auto& m : items) {
             if (VideoSource* v = m->video()) v->setLoop(m->loop);
-            m->source->update(m->playing ? dt : 0.0);
+            m->source->update(m->playing ? dt * std::max(0.0f, m->speed) : 0.0);
         }
     }
 

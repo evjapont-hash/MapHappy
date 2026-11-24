@@ -178,6 +178,9 @@ export class Panels {
     const card = el('div', { class: 'card' });
     card.append(row('Name', textInput(m.name || '', v => { m.name = v; ed.commit(); this.render(); })));
     const changed = final => { if (src?.refresh) src.refresh(m); final ? ed.commit() : ed.touched(); };
+    const speed = slider({ label: 'Speed', min: 0, max: 4, step: 0.01, title: 'How fast it plays: 0 = frozen, 1 = normal, 2 = twice as fast',
+      get: () => m.speed ?? 1, set: (x, final) => { m.speed = Math.round(x * 100) / 100; changed(final); }, format: x => `${(+x).toFixed(2)}×` });
+    this.bindings.push(speed); card.append(speed.node);
     const g = genType(m.type);
     if (m.kind === 'generator' && g) {
       for (const p of g.params) {

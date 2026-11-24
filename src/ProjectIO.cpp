@@ -71,7 +71,7 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
     json media = json::array();
     for (const auto& m : p.media.items) {
         json o;
-        o["id"] = m->id; o["name"] = m->name; o["playing"] = m->playing; o["loop"] = m->loop;
+        o["id"] = m->id; o["name"] = m->name; o["playing"] = m->playing; o["loop"] = m->loop; o["speed"] = m->speed;
         if (m->kind == MediaKind::Generator) {
             o["kind"] = "generator";
             if (const GeneratorSource* g = m->generator()) { const json gj = genToJson(g->settings); for (auto& kv : gj.items()) o[kv.key()] = kv.value(); }   // (a named copy: items() of a temporary would dangle)
@@ -242,10 +242,11 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
     auto warn = [&](const std::string& w) { report.warnings.push_back(w); };
 
     // ------------------------------------------------------------------ read and check everything first
-    struct PMedia { int id; std::string name, path, rel; bool playing, loop, isVideo, isGen = false; GenSettings gen; };
+    struct PMedia { int id; std::string name, path, rel; bool playing, loop, isVideo, isGen = false; GenSettings gen; float speed = 1.0f; };
     std::vector<PMedia> media;
     std::set<int> mediaIds = {MediaPool::kPatternId};
     bool patternPlaying = true, patternLoop = true;
+    float patternSpeed = 1.0f;
     if (j.contains("media") && j["media"].is_array()) {
         for (const json& m : j["media"]) {
             if (!m.is_object()) continue;
@@ -254,9 +255,10 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
             pm.name = get<std::string>(m, "name", "");
             pm.path = get<std::string>(m, "path", ""); pm.rel = get<std::string>(m, "pathRel", "");
             pm.playing = get<bool>(m, "playing", true); pm.loop = get<bool>(m, "loop", true);
+            pm.speed = get<float>(m, "speed", 1.0f); pm.speed = std::isfinite(pm.speed) ? std::max(0.0f, std::min(8.0f, pm.speed)) : 1.0f;
             pm.isVideo = get<std::string>(m, "kind", "") == "video";
             if (!pm.isVideo) {
-                if (get<std::string>(m, "type", "pattern") == "pattern") { if (pm.id == MediaPool::kPatternId) { patternPlaying = pm.playing; patternLoop = pm.loop; } continue; }
+                if (get<std::string>(m, "type", "pattern") == "pattern") { if (pm.id == MediaPool::kPatternId) { patternPlaying = pm.playing; patternLoop = pm.loop; patternSpeed = pm.speed; } continue; }
                 if (!genFromJson(m, pm.gen, &report.warnings)) { warn("Skipped \"" + pm.name + "\", a generator this version of MapHappy doesn't know"); continue; }
                 pm.isGen = true;
             }
@@ -499,12 +501,12 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
     p.resetToEmpty();
     p.outW = std::max(16, std::min(16384, get<int>(j.value("output", json::object()), "width", 1920)));
     p.outH = std::max(16, std::min(16384, get<int>(j.value("output", json::object()), "height", 1080)));
-    if (MediaItem* pat = p.media.find(MediaPool::kPatternId)) { pat->playing = patternPlaying; pat->loop = patternLoop; }
+    if (MediaItem* pat = p.media.find(MediaPool::kPatternId)) { pat->playing = patternPlaying; pat->loop = patternLoop; pat->speed = patternSpeed; }
 
     for (const PMedia& pm : media) {
         if (pm.isGen) {
             const int id = p.media.addGenerator(pm.gen, pm.id, pm.name);
-            if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; }
+            if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; m->speed = pm.speed; }
             continue;
         }
         std::string resolved = resolveStoredPath(base, pm.rel, pm.path);
@@ -517,7 +519,7 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
             warn("Can't find \"" + pm.name + "\" (" + pm.path + ")");
         }
         if (!id) id = p.media.addMissingVideo(pm.id, pm.path, pm.name);
-        if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; }
+        if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; m->speed = pm.speed; }
     }
     p.surfaces = surfaces;
     p.folders = folders;

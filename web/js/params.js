@@ -8,6 +8,7 @@ const all = () => true, line = s => s.shape === 'line', obj = s => s.shape === '
 const TABLE = [
   ['opacity', 'Opacity', 'Appearance', 0, 1, 1, 'pct'], ['visible', 'Visible', 'Appearance', 0, 1, 1, 'bool'], ['feather', 'Feather', 'Appearance', 0, 1, 0, 'pct'],
   ['posX', 'Position X', 'Transform', -1, 1, 0, 'pct'], ['posY', 'Position Y', 'Transform', -1, 1, 0, 'pct'], ['rotation', 'Rotation', 'Transform', -720, 720, 0, 'deg'],
+  ['spin', 'Spin (°/s)', 'Transform', -720, 720, 0, 'deg'],
   ['scale', 'Scale', 'Transform', 0, 4, 1, 'pct'], ['scaleX', 'Scale X', 'Transform', 0, 4, 1, 'pct'], ['scaleY', 'Scale Y', 'Transform', 0, 4, 1, 'pct'],
   ['contentX', 'Offset X', 'Content', -1, 1, 0, 'pct'], ['contentY', 'Offset Y', 'Content', -1, 1, 0, 'pct'], ['contentScale', 'Zoom', 'Content', 0.1, 8, 1, 'pct'],
   ['contentRotation', 'Rotation', 'Content', -720, 720, 0, 'deg'],
@@ -16,6 +17,7 @@ const TABLE = [
   ['brightness', 'Brightness', 'Color', -1, 1, 0, 'pct'],
   ['lineWidth', 'Line width', 'Line', 0.001, 0.5, 0.02, 'pct', line],
   ['rotX', 'Turn X', '3D Object', -720, 720, -20, 'deg', obj], ['rotY', 'Turn Y', '3D Object', -720, 720, 30, 'deg', obj], ['rotZ', 'Turn Z', '3D Object', -720, 720, 0, 'deg', obj],
+  ['spinX', 'Spin X (°/s)', '3D Object', -720, 720, 0, 'deg', obj], ['spinY', 'Spin Y (°/s)', '3D Object', -720, 720, 0, 'deg', obj], ['spinZ', 'Spin Z (°/s)', '3D Object', -720, 720, 0, 'deg', obj],
   ['objScale', 'Size', '3D Object', 0, 4, 1, 'pct', obj], ['fov', 'Field of view', '3D Object', 5, 150, 40, 'deg', obj], ['shading', 'Lighting', '3D Object', 0, 1, 0, 'pct', obj],
   ['lightModel', 'Light model', 'Lighting', 0, 3, 2, 'choice', obj], ['ambient', 'Ambient', 'Lighting', 0, 1, 0.2, 'pct', obj],
   ['kd', 'Diffuse', 'Material', 0, 2, 1, 'pct', obj], ['ks', 'Specular', 'Material', 0, 2, 0.5, 'pct', obj], ['shininess', 'Shininess', 'Material', 1, 256, 32, '', obj],

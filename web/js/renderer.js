@@ -2,7 +2,7 @@
 //   1. every visible 3D object is rendered with depth into its own texture, lit by its light model's program;
 //   2. surfaces are drawn back to front: each stage pixel is mapped back through the warp into the media.
 import { compileProgram, makeTarget, destroyTarget, colMajor3 } from './gl.js';
-import { squareToQuad, invert3, effectiveOut, effectiveIn, objectModel, objectViewProjection, objectCameraDistance, mul4 } from './math.js';
+import { squareToQuad, invert3, effectiveOut, effectiveIn, objectModel, objectViewProjection, objectCameraDistance, mul4, spinAngle } from './math.js';
 import { builtinMesh, parseObj } from './mesh.js';
 import { isShown } from './show.js';
 import * as S from './shaders.gen.js';
@@ -138,7 +138,7 @@ export class Renderer {
       live.add(s.id);
       const inH = squareToQuad(effectiveIn(s, src.w / Math.max(1, src.h)));
       if (!inH) continue;
-      const q = s.p, model = objectModel(q.rotX, q.rotY, q.rotZ, q.objScale), mvp = mul4(objectViewProjection(q.fov, tw / th), model);
+      const q = s.p, model = objectModel(q.rotX + spinAngle(q.spinX, s.clock), q.rotY + spinAngle(q.spinY, s.clock), q.rotZ + spinAngle(q.spinZ, s.clock), q.objScale), mvp = mul4(objectViewProjection(q.fov, tw / th), model);
       const lm = this.lightOverride >= 0 ? this.lightOverride : Math.max(0, Math.min(3, Math.round(q.lightModel)));
       const prog = this.lightProgs[lm];
 

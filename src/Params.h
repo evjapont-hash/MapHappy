@@ -38,6 +38,7 @@ inline const std::vector<ParamDef>& paramDefs() {
         MH_PARAM("posX",     "Position X", "Transform", -1.0f, 1.0f, 0.0f, ParamFormat::Percent, posX),
         MH_PARAM("posY",     "Position Y", "Transform", -1.0f, 1.0f, 0.0f, ParamFormat::Percent, posY),
         MH_PARAM("rotation", "Rotation",   "Transform", -720.0f, 720.0f, 0.0f, ParamFormat::Degrees, rotation),
+        MH_PARAM("spin",     "Spin (deg/s)", "Transform", -720.0f, 720.0f, 0.0f, ParamFormat::Degrees, spin),
         MH_PARAM("scale",    "Scale",      "Transform", 0.0f, 4.0f, 1.0f, ParamFormat::Percent, scale),
         MH_PARAM("scaleX",   "Scale X",    "Transform", 0.0f, 4.0f, 1.0f, ParamFormat::Percent, scaleX),
         MH_PARAM("scaleY",   "Scale Y",    "Transform", 0.0f, 4.0f, 1.0f, ParamFormat::Percent, scaleY),
@@ -64,6 +65,9 @@ inline const std::vector<ParamDef>& paramDefs() {
         MH_PARAM3D("rotX",     "Turn X",        -720.0f, 720.0f, -20.0f, ParamFormat::Degrees, rotX),
         MH_PARAM3D("rotY",     "Turn Y",        -720.0f, 720.0f, 30.0f,  ParamFormat::Degrees, rotY),
         MH_PARAM3D("rotZ",     "Turn Z",        -720.0f, 720.0f, 0.0f,   ParamFormat::Degrees, rotZ),
+        MH_PARAM3D("spinX",    "Spin X (deg/s)", -720.0f, 720.0f, 0.0f,  ParamFormat::Degrees, spinX),
+        MH_PARAM3D("spinY",    "Spin Y (deg/s)", -720.0f, 720.0f, 0.0f,  ParamFormat::Degrees, spinY),
+        MH_PARAM3D("spinZ",    "Spin Z (deg/s)", -720.0f, 720.0f, 0.0f,  ParamFormat::Degrees, spinZ),
         MH_PARAM3D("objScale", "Size",          0.0f,    4.0f,   1.0f,   ParamFormat::Percent, objScale),
         MH_PARAM3D("fov",      "Field of view", 5.0f,    150.0f, 40.0f,  ParamFormat::Degrees, fov),
         MH_PARAM3D("shading",  "Lighting",      0.0f,    1.0f,   0.0f,   ParamFormat::Percent, shading),
@@ -191,6 +195,7 @@ inline bool setParam(Project& p, const std::string& path, float v) {
 
 // Writes the value of every unmuted track at the playhead into the project.
 inline void applyTimeline(Project& p) {
+    for (Surface& s : p.surfaces) s.clock = p.transport.time;          // spins follow the show clock
     for (const Track& t : p.timeline.tracks) {
         if (t.muted) continue;
         float v;

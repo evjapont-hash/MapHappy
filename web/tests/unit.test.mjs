@@ -20,6 +20,16 @@ test('the warp maps the unit square onto the quad, and back', () => {
   assert.equal(invert3(squareToQuad([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }])), null);   // collapsed: skipped when inverting, as on the desktop
 });
 
+test('spin turns a surface by itself, timed by the show clock', () => {
+  const s = { shape: 'quad', p: { ...defaultParams(), rotation: 90 }, out: [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.6, y: 0.6 }, { x: 0.4, y: 0.6 }] };
+  const a = effectiveOut(s, 1);
+  s.p.rotation = 0; s.p.spin = 45; s.clock = 2;
+  const b = effectiveOut(s, 1);
+  near(a[0].x, b[0].x, 1e-9); near(a[0].y, b[0].y, 1e-9);
+  const show = readShow(project(), resolve); show.surfaces[0].p.spinY = 10;
+  applyTimeline(show, 7); assert.equal(show.surfaces[0].clock, 7);
+});
+
 test('surface transforms match the desktop app', () => {
   const s = { shape: 'quad', p: defaultParams(), out: [{ x: 0.36, y: 0.25 }, { x: 0.64, y: 0.25 }, { x: 0.64, y: 0.75 }, { x: 0.36, y: 0.75 }], in: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }] };
   s.p.posX = 0.1; let e = effectiveOut(s, 16 / 9); near(e[0].x, 0.46, 1e-6);
@@ -57,7 +67,7 @@ test('reading a timeline keeps ghost clips sharing their keyframes, and skips da
 });
 
 test('parameters: the same table, ranges and paths as the desktop app', () => {
-  assert.equal(PARAMS.size, 55);
+  assert.equal(PARAMS.size, 59);
   assert.equal(cleanValue('opacity', 5), 1); assert.equal(cleanValue('visible', true), 1); assert.equal(cleanValue('visible', 0.2), 0);
   assert.equal(cleanValue('nope', 1), null); assert.equal(cleanValue('hue', NaN), null);
   assert.deepEqual(parsePath('surface/12/posX'), { id: 12, key: 'posX' }); assert.equal(parsePath('audio/1'), null);

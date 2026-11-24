@@ -92,6 +92,10 @@ async function run() {
     expect('the L key override swaps the program (Toon here)', toon !== phong);
     s.p.ks = 0; s.media = 2; s.p.dirIntensity = 0; s.p.spotIntensity = 2; s.p.spotX = 0; s.p.spotY = 0; s.p.spotZ = 4; s.p.spotAngle = 10; s.p.spotSoftness = 0; s.p.lightModel = 2; draw(show);
     expect('a narrow spotlight lights a disc in the middle only', r(200, 200) > 200 && r(120, 200) <= 3);
+    { s.p.spotIntensity = 0; s.p.dirIntensity = 1; s.p.rotY = 45; draw(show); const turned = [px(stage, 150, 200), px(stage, 260, 200)];
+      s.p.rotY = 0; s.p.spinY = 90; s.clock = 0.5; draw(show); const spun = [px(stage, 150, 200), px(stage, 260, 200)];
+      expect('Spin Y 90°/s, half a second in, draws exactly like a 45° turn', JSON.stringify(turned) === JSON.stringify(spun));
+      s.p.spinY = 0; s.clock = 0; s.p.dirIntensity = 0; }
     s.p.spotIntensity = 0; s.p.pointIntensity = 1; s.p.pointX = 0; s.p.pointY = 0; s.p.pointZ = 1.2; s.p.pointRange = 1; draw(show);
     expect('a point light falls off with distance', r(200, 200) > r(90, 90) + 40); }
 

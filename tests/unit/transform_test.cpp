@@ -72,6 +72,15 @@ int main() {
     std::vector<Vec2> tri = {{0, 0}, {1, 0}, {0, 1}};
     expect("point-in-polygon: inside, outside and degenerate", pointInPolygon(tri, {0.2f, 0.2f}) && !pointInPolygon(tri, {0.8f, 0.8f}) && !pointInPolygon({}, {0, 0}));
 
+    // ---- spin: keeps turning by itself, timed by the show clock
+    { Surface sp; sp.out[0] = {0.4f, 0.4f}; sp.out[1] = {0.6f, 0.4f}; sp.out[2] = {0.6f, 0.6f}; sp.out[3] = {0.4f, 0.6f};
+      Vec2 a[4], b[4]; sp.rotation = 90.0f; effectiveOut(sp, 1.0f, a);
+      sp.rotation = 0.0f; sp.spin = 45.0f; sp.clock = 2.0; effectiveOut(sp, 1.0f, b);
+      expect("spin 45 deg/s for 2 s turns it as far as a rotation of 90 degrees", nearf(a[0].x, b[0].x, 1e-5) && nearf(a[0].y, b[0].y, 1e-5));
+      sp.clock = 10.0; Vec2 c[4]; effectiveOut(sp, 1.0f, c);
+      expect("...and keeps going (10 s = one and a quarter turns = 90 degrees)", nearf(c[0].x, a[0].x, 1e-4) && nearf(c[0].y, a[0].y, 1e-4));
+      expect("spin angles stay small after hours (no precision loss)", nearf(spinAngle(45.0f, 3600.0 * 5 + 2.0), 90.0, 1e-3)); }
+
     // ---- shapes
     { bool all = true; for (int i = 0; i < kShapeCount; i++) all &= shapeFromKey(shapeKey((Shape)i)) == (Shape)i;
       expect("every shape round-trips through its file name; unknown names are quads", all && shapeFromKey("blob") == Shape::Quad); }

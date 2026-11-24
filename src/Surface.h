@@ -136,6 +136,7 @@ struct Surface {
     // Transform of the OUTPUT quad, applied on top of the mapped corners about the quad's centre:
     float posX = 0.0f, posY = 0.0f;                           // move, as a fraction of the stage's width / height
     float rotation = 0.0f;                                    // degrees, clockwise
+    float spin = 0.0f;                                        // degrees per second: keeps turning by itself, timed by the show clock
     float scale = 1.0f, scaleX = 1.0f, scaleY = 1.0f;         // multipliers
     // Transform of the PICTURE inside the surface (scroll, zoom, spin):
     float contentX = 0.0f, contentY = 0.0f;                   // move the picture, as a fraction of the picture's width / height
@@ -157,10 +158,12 @@ struct Surface {
     MeshKind    meshKind = MeshKind::Cube;
     std::string meshPath;                                     // MeshKind::File only
     float rotX = -20.0f, rotY = 30.0f, rotZ = 0.0f;           // degrees: turned around Y, then X, then Z
+    float spinX = 0.0f, spinY = 0.0f, spinZ = 0.0f;           // degrees per second around each axis, timed by the show clock
     float objScale = 1.0f;
     float fov = 40.0f;                                        // the virtual camera's field of view, degrees
     float shading = 0.0f;                                     // "Lighting": 0 = the picture as it is (the projector is the light), 1 = fully lit
     LightRig light;
+    double clock = 0.0;                                       // the show time the spins are at (set by applyTimeline; not saved)
 };
 
 // A line's quad: the segment from lineA to lineB, lineWidth thick, square in PIXELS (aspect = stage w / h).
@@ -258,6 +261,9 @@ inline Vec2 rotateAspect(Vec2 v, float degrees, float aspect) {
 }
 
 // aspect = stage width / stage height
+// A spin's angle at the surface's clock, kept small (a whole number of turns changes nothing).
+inline float spinAngle(float degreesPerSecond, double clock) { return (float)std::fmod((double)degreesPerSecond * clock, 360.0); }
+
 inline void effectiveOut(const Surface& s, float aspect, Vec2 out[4]) {
     Vec2 base[4] = {s.out[0], s.out[1], s.out[2], s.out[3]};
     if (s.shape == Shape::Line) lineQuad(s, aspect, base);           // a line's quad always follows its end points and width
@@ -265,7 +271,7 @@ inline void effectiveOut(const Surface& s, float aspect, Vec2 out[4]) {
     const float sx = s.scale * s.scaleX, sy = s.scale * s.scaleY;
     for (int i = 0; i < 4; i++) {
         Vec2 v{(base[i].x - c.x) * sx, (base[i].y - c.y) * sy};      // scale first, in the quad's own directions...
-        v = rotateAspect(v, s.rotation, aspect);                      // ...then spin...
+        v = rotateAspect(v, s.rotation + spinAngle(s.spin, s.clock), aspect);   // ...then turn...
         out[i] = Vec2{c.x + v.x + s.posX, c.y + v.y + s.posY};        // ...then move
     }
 }

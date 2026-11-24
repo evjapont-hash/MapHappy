@@ -297,7 +297,7 @@ private:
             effectiveIn(s, (float)src->width() / (float)std::max(1, src->height()), ei);
             Mat3 inH;
             if (!squareToQuad(ei, inH)) continue;
-            const Mat4 model = objectModel(s.rotX, s.rotY, s.rotZ, s.objScale);
+            const Mat4 model = objectModel(s.rotX + spinAngle(s.spinX, s.clock), s.rotY + spinAngle(s.spinY, s.clock), s.rotZ + spinAngle(s.spinZ, s.clock), s.objScale);
             const Mat4 mvp = objectViewProjection(s.fov, (float)tw / (float)th) * model;
 
             glBindFramebuffer(GL_FRAMEBUFFER, t.rt.fbo);

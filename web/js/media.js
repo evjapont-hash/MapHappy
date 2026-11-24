@@ -37,7 +37,7 @@ function rasterizeText(text, font, align) {
 
 class Generator {
   constructor(gl, entry) {
-    this.gl = gl; this.type = entry.type; this.time = 0; this.playing = entry.playing !== false;
+    this.gl = gl; this.type = entry.type; this.time = 0; this.playing = entry.playing !== false; this.speed = speedOf(entry);
     this.params = entry.params || {};
     this.w = Math.max(16, Math.min(8192, entry.width | 0 || 1920)); this.h = Math.max(16, Math.min(8192, entry.height | 0 || 1080));
     this.prog = generatorProgram(gl, this.type);
@@ -57,7 +57,7 @@ class Generator {
   // After the editor changed the entry: a new size or new text takes effect.
   refresh(entry) {
     this.params = entry.params || this.params;
-    this.playing = entry.playing !== false;
+    this.playing = entry.playing !== false; this.speed = speedOf(entry);
     const w = Math.max(16, Math.min(8192, entry.width | 0 || this.w)), h = Math.max(16, Math.min(8192, entry.height | 0 || this.h));
     if (w !== this.w || h !== this.h) { destroyTarget(this.gl, this.target); this.w = w; this.h = h; this.target = makeTarget(this.gl, w, h); this.tex = this.target.tex; }
     if (this.textTex) { this.gl.deleteTexture(this.textTex); this.textTex = null; }
@@ -82,7 +82,7 @@ class Generator {
     setLinearClamp(gl);
     this.textW = img.w; this.textH = img.h;
   }
-  update(dt) { if (this.playing) this.time += dt; this.render(); }
+  update(dt) { if (this.playing) this.time += dt * this.speed; this.render(); }
   render() {
     const gl = this.gl, p = this.prog, t = this.target;
     gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
@@ -109,14 +109,15 @@ class Generator {
 }
 
 class Pattern {                              // the built-in test pattern (media id 1)
-  constructor(gl, playing) {
-    this.gl = gl; this.time = 0; this.playing = playing; this.w = 1280; this.h = 720;
+  constructor(gl, playing, speed = 1) {
+    this.gl = gl; this.time = 0; this.playing = playing; this.speed = speed; this.w = 1280; this.h = 720;
     this.prog = compileProgram(gl, S.kFullscreenVS, S.kPatternFS, 'test pattern');
     this.target = makeTarget(gl, this.w, this.h); this.tex = this.target.tex;
     this.update(0);
   }
+  refresh(entry) { this.playing = entry.playing !== false; this.speed = speedOf(entry); }
   update(dt) {
-    if (this.playing) this.time += dt;
+    if (this.playing) this.time += dt * this.speed;
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.target.fbo);
     gl.viewport(0, 0, this.w, this.h);
@@ -131,15 +132,18 @@ class Pattern {                              // the built-in test pattern (media
 
 class Video {
   static isVideo = true;
-  constructor(gl, url, loop, playing) {
+  constructor(gl, url, loop, playing, speed = 1) {
     this.gl = gl; this.w = 16; this.h = 9; this.ready = false; this.wantPlay = playing;
     this.tex = solidTexture(gl, 0, 0, 0);
     const v = this.video = document.createElement('video');
     v.src = url; v.muted = true; v.loop = loop; v.playsInline = true; v.crossOrigin = 'anonymous'; v.preload = 'auto';
+    this.setSpeed(speed);
     v.addEventListener('loadeddata', () => { this.ready = true; this.w = v.videoWidth; this.h = v.videoHeight; });
     v.addEventListener('error', () => { this.failed = true; });
   }
-  start() { if (this.wantPlay) this.video.play().catch(() => {}); }
+  setSpeed(speed) { this.speed = speed; this.video.playbackRate = Math.max(0.0625, speed); this.frozen = speed <= 0; if (this.frozen) this.video.pause(); else if (this.started) this.video.play().catch(() => {}); }
+  refresh(entry) { this.video.loop = entry.loop !== false; this.setSpeed(speedOf(entry)); }
+  start() { this.started = true; if (this.wantPlay && !this.frozen) this.video.play().catch(() => {}); }
   update() {
     if (!this.ready || this.video.readyState < 2) return;
     const gl = this.gl;
@@ -150,6 +154,9 @@ class Video {
   }
 }
 
+// How fast a media item plays (its "speed": 0 = frozen, 1 = normal, up to 8).
+export const speedOf = m => { const v = Number(m?.speed ?? 1); return Number.isFinite(v) ? Math.max(0, Math.min(8, v)) : 1; };
+
 class Missing { constructor(gl) { this.tex = solidTexture(gl, 70, 28, 28); this.w = 64; this.h = 36; } update() {} }
 
 // One media source from its project-file entry (null for the built-in pattern, which buildMedia makes).
@@ -157,7 +164,7 @@ export function createSource(gl, m, resolve, warn) {
   if (m.kind === 'video') {
     const url = resolve(m.path, m.pathRel);
     if (!url) { warn(`Can't find the video "${m.name}"`); return new Missing(gl); }
-    return new Video(gl, url, m.loop !== false, m.playing !== false);
+    return new Video(gl, url, m.loop !== false, m.playing !== false, speedOf(m));
   }
   if (BODIES[m.type]) return new Generator(gl, m);
   if (m.type !== 'pattern') warn(`Skipped "${m.name}", a generator this player doesn't know`);
@@ -169,7 +176,8 @@ export function buildMedia(gl, list, resolve, warn) {
   const pool = new Map();
   let patternPlaying = true;
   for (const m of Array.isArray(list) ? list : []) if (m && m.id === 1 && m.type === 'pattern') patternPlaying = m.playing !== false;
-  pool.set(1, new Pattern(gl, patternPlaying));
+  const pat = (Array.isArray(list) ? list : []).find(m => m && m.id === 1);
+  pool.set(1, new Pattern(gl, patternPlaying, pat ? speedOf(pat) : 1));
   for (const m of Array.isArray(list) ? list : []) {
     if (!m || typeof m !== 'object' || !(m.id > 1) || pool.has(m.id)) continue;
     try { const src = createSource(gl, m, resolve, warn); if (src) pool.set(m.id, src); }

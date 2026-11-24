@@ -61,13 +61,16 @@ export function lineQuad(s, aspect) {
           { x: s.lineB.x + nx, y: s.lineB.y + ny }, { x: s.lineA.x + nx, y: s.lineA.y + ny }];
 }
 
+// A spin's angle at a show time (deg/s x s), kept small: whole turns change nothing.
+export const spinAngle = (degPerSec, clock) => ((degPerSec || 0) * (clock || 0)) % 360;
+
 // The output quad as drawn: the mapped quad moved / spun / scaled by the animatable transform (aspect = stage w/h).
 export function effectiveOut(s, aspect) {
   const base = (s.shape === 'line' && lineQuad(s, aspect)) || s.out;
   const c = quadCenter(base), p = s.p, sx = p.scale * p.scaleX, sy = p.scale * p.scaleY;
   return base.map(q => {
     let v = { x: (q.x - c.x) * sx, y: (q.y - c.y) * sy };
-    v = rotateAspect(v, p.rotation, aspect);
+    v = rotateAspect(v, p.rotation + spinAngle(p.spin, s.clock), aspect);
     return { x: c.x + v.x + p.posX, y: c.y + v.y + p.posY };
   });
 }

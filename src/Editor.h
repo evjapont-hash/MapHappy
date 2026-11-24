@@ -937,8 +937,8 @@ private:
             ImGui::SameLine();
             if (ImGui::Button("Reload")) forgetMeshFile(s.meshPath);
         }
-        for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov"}) paramSlider(s, k);
-        if (ImGui::Button("Reset view")) for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov"}) setParamToDefault(s, k);
+        for (const char* k : {"rotX", "rotY", "rotZ", "spinX", "spinY", "spinZ", "objScale", "fov"}) paramSlider(s, k);
+        if (ImGui::Button("Reset view")) for (const char* k : {"rotX", "rotY", "rotZ", "spinX", "spinY", "spinZ", "objScale", "fov"}) setParamToDefault(s, k);
 
         ImGui::SeparatorText("Lighting");
         int lm = std::max(0, std::min(kLightModelCount - 1, (int)std::lround(s.light.model)));
@@ -1032,10 +1032,10 @@ private:
         recordRect("header:Transform");
         if (openTransform) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]); ImGui::TextWrapped("Moves the mapped shape without changing how it is mapped"); ImGui::PopStyleColor();
-            for (const char* k : {"posX", "posY", "rotation", "scale", "scaleX", "scaleY"}) paramSlider(s, k);
+            for (const char* k : {"posX", "posY", "rotation", "spin", "scale", "scaleX", "scaleY"}) paramSlider(s, k);
             const bool resetT = ImGui::Button("Reset transform");
             recordRect("button:Reset transform");
-            if (resetT) for (const char* k : {"posX", "posY", "rotation", "scale", "scaleX", "scaleY"}) setParamToDefault(s, k);
+            if (resetT) for (const char* k : {"posX", "posY", "rotation", "spin", "scale", "scaleX", "scaleY"}) setParamToDefault(s, k);
         }
         const bool openContent = ImGui::CollapsingHeader("Content");
         recordRect("header:Content");
@@ -1563,7 +1563,13 @@ private:
                 ImGui::TextDisabled("%.2f fps", v->fps());
                 ImGui::TextDisabled("%s", m->path.c_str());
             }
-            if (!m->missing) ImGui::Checkbox("Playing", &m->playing);
+            if (!m->missing) {
+                ImGui::SetNextItemWidth(150);
+                ImGui::SliderFloat("Speed##media", &m->speed, 0.0f, 4.0f, "%.2fx");
+                recordRect("slider:mediaSpeed");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("How fast it plays: 0 = frozen, 1 = normal, 2 = twice as fast");
+                ImGui::Checkbox("Playing", &m->playing);
+            }
             if (m->video()) {
                 ImGui::SameLine();
                 ImGui::Checkbox("Loop", &m->loop);

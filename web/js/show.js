@@ -155,6 +155,7 @@ export function isShown(show, s) {
 
 // Writes every unmuted track's value at `time` into the surfaces (the timeline drives what it animates).
 export function applyTimeline(show, time) {
+  for (const s of show.surfaces) s.clock = time;                     // spins follow the show clock
   for (const t of paramTracks(show.timeline)) {
     if (t.muted) continue;
     const target = parsePath(t.path);

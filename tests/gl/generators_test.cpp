@@ -120,6 +120,11 @@ int main() {
       expect("a surface shows a generator's picture on the stage", d[0] < 3 && d[1] > 252 && d[2] < 3);
       p.media.find(b)->playing = false; p.media.update(0.3);
       expect("a paused generator's clock doesn't move", p.media.find(b)->generator()->time() == 0.0 && nearf(p.media.find(c)->generator()->time(), 0.3, 1e-9));
+      p.media.find(c)->speed = 2.5f; p.media.update(0.2);
+      expect("Speed 2.5x runs a generator's animation two and a half times as fast", nearf(p.media.find(c)->generator()->time(), 0.8, 1e-9));
+      p.media.find(c)->speed = 0.0f; p.media.update(0.5);
+      expect("...and Speed 0 freezes it", nearf(p.media.find(c)->generator()->time(), 0.8, 1e-9));
+      p.media.find(c)->speed = 1.75f;
 
       GeneratorSource* g = p.media.find(c)->generator();
       g->settings.setNum("rate", 7.5f); g->settings.setColor("onColor", {1, 0, 0, 0.5f}); g->settings.setSize(640, 360);
@@ -138,6 +143,7 @@ int main() {
       const MediaItem* qc = q.media.find(c);
       expect("...with every generator setting, id, name and order kept", qc && qc->generator() && qc->generator()->settings == g->settings && qc->generator()->width() == 640
              && q.media.find(b)->name == "My strobe" && !q.media.find(b)->playing && q.media.items.size() == 5 && q.media.items[3]->id == c);
+      expect("...including its speed", nearf(q.media.find(c)->speed, 1.75f, 1e-6) && nearf(q.media.find(a)->speed, 1.0f, 1e-6));
       expect("...and surfaces still use them", q.surfaces.size() == 2 && q.surfaces[0].mediaId == t && q.surfaces[1].mediaId == a);
 
       json j = json::parse(text);
