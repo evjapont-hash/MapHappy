@@ -11,8 +11,8 @@ It was built to make rhythmic, music-timed projection shows cheap and approachab
 projection mapper, but MapHappy is an **independent implementation**: it contains no code, assets or
 artwork from any commercial product and is not affiliated with one.
 
-> Status: working and in active development. Developed and tested on Windows. The code is written
-> to be cross-platform (CMake, GLFW, OpenGL 3.3 core, miniaudio) but has not been built on macOS yet.
+> Status: working and in active development. Developed and tested on Windows. The code also
+> builds and passes its tests on Linux and macOS in CI, but nobody has used the app on a Mac yet.
 
 <!-- Add screenshots here: the editor (Input + Stage + Conductor), and a surface being warped. -->
 
@@ -162,7 +162,7 @@ for FFmpeg. Everything else is fetched by CMake.
 git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
 C:\vcpkg\bootstrap-vcpkg.bat
 
-git clone https://github.com/<you>/MapHappy.git
+git clone https://github.com/evjapont-hash/MapHappy.git
 cd MapHappy
 cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
 cmake --build build --config Release
@@ -171,8 +171,10 @@ cmake --build build --config Release
 
 The first configure builds FFmpeg through vcpkg (10 to 20 minutes, once).
 
-**macOS / Linux** use the same CMake commands with your vcpkg path. This is untested so far, so expect
-to fix small things.
+**macOS**: `brew install ffmpeg pkg-config`, then the same CMake commands without the toolchain file.
+
+**Linux**: install FFmpeg's development packages and the X11/OpenGL headers (the exact `apt-get` line is in
+`.github/workflows/ci.yml`), then the same CMake commands without the toolchain file.
 
 ### Dependencies
 
@@ -245,6 +247,11 @@ cmake -S . -B build -DMAPHAPPY_BUILD_TESTS=ON -DMAPHAPPY_GL_TESTS=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+## License
+
+MapHappy is [MIT licensed](LICENSE), by Evan Pontrich. The libraries it uses keep their own licenses (see
+[Dependencies](#dependencies)).
 
 ## Roadmap
 
