@@ -9,6 +9,7 @@ import { capturePreset, isShown } from '../show.js';
 const isShownFolder = (show, id) => isShown(show, { p: { visible: 1 }, folder: id });
 import { uniquePath } from '../files.js';
 import * as ops from '../editor-ops.js';
+import { SHAPE_ICONS } from './icons.js';
 
 const SHAPE_LIST = [['quad', 'Quad'], ['circle', 'Circle'], ['triangle', 'Triangle'], ['line', 'Line'], ['freeform', 'Freeform'], ['object3d', '3D Object']];
 const AUDIO_EXT = /\.(mp3|wav|ogg|oga|flac|m4a|aac)$/i, VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)$/i, OBJ_EXT = /\.obj$/i;
@@ -16,8 +17,8 @@ const AUDIO_EXT = /\.(mp3|wav|ogg|oga|flac|m4a|aac)$/i, VIDEO_EXT = /\.(mp4|webm
 export class Panels {
   constructor(ed, root) {
     this.ed = ed; this.root = root; this.tab = 'surfaces'; this.bindings = [];
-    this.tabs = el('div', { class: 'tabs' }, ...[['surfaces', 'Surfaces'], ['media', 'Media'], ['presets', 'Presets']].map(([id, label]) =>
-      el('button', { 'data-tab': id, text: label, on: { click: () => { this.tab = id; this.render(); } } })));
+    this.tabs = el('div', { class: 'tabs' }, ...[['surfaces', 'Surfaces', 'layers'], ['media', 'Media', 'image'], ['presets', 'Presets', 'keys']].map(([id, label, ic]) =>
+      el('button', { 'data-tab': id, text: label, icon: ic, on: { click: () => { this.tab = id; this.render(); } } })));
     this.body = el('div', { class: 'panel-body' });
     root.append(this.tabs, this.body);
   }
@@ -40,20 +41,22 @@ export class Panels {
   surfaces() {
     const ed = this.ed, show = ed.show, b = this.body;
     if (ed.selFolder && !show.folders.has(ed.selFolder)) ed.selFolder = 0;
-    b.append(el('div', { class: 'buttons' }, SHAPE_LIST.map(([shape, label]) =>
-      el('button', { text: `+ ${label}`, on: { click: () => { const s = ops.addSurface(show, shape, ed.defaultMedia(), this.currentFolder()); ed.select(s.id); ed.commit(); } } }))));
+    b.append(el('h3', { text: 'Add surface' }));
+    b.append(el('div', { class: 'shapes' }, SHAPE_LIST.map(([shape, label]) =>
+      el('button', { text: label, icon: SHAPE_ICONS[shape], title: `Add a ${label.toLowerCase()} surface`, on: { click: () => { const s = ops.addSurface(show, shape, ed.defaultMedia(), this.currentFolder()); ed.select(s.id); ed.commit(); } } }))));
     const sel = ed.selFolder ? null : ed.selected();
-    b.append(el('div', { class: 'buttons' },
-      el('button', { text: 'Up', disabled: !sel, title: 'Draw it in front of the one above', on: { click: () => { ops.moveSurface(show, sel.id, -1); ed.commit(); this.render(); } } }),
-      el('button', { text: 'Down', disabled: !sel, on: { click: () => { ops.moveSurface(show, sel.id, +1); ed.commit(); this.render(); } } }),
-      el('button', { text: 'Duplicate', disabled: !sel, on: { click: () => { const c = ed.duplicate(sel); ed.select(c.id); ed.commit(); } } }),
-      el('button', { text: 'Delete', class: 'danger', disabled: !sel && !ed.selFolder, title: ed.selFolder ? 'Delete the folder (what is in it moves up a level)' : 'Delete the surface',
-        on: { click: () => { if (ed.selFolder) { ops.removeFolder(show, ed.selFolder); ed.selFolder = 0; } else { ops.removeSurface(show, sel.id); ed.select(0); } ed.commit(); this.render(); } } }),
-      el('button', { text: '+ Folder', title: 'A folder to organise surfaces: drag surfaces onto it; hiding it hides all it holds',
-        on: { click: () => { ed.selFolder = ops.addFolder(show, '', this.currentFolder()); ed.commit(); this.render(); } } })));
+    b.append(el('h3', { text: 'Surfaces' }));
+    b.append(el('div', { class: 'buttons toolbar' },
+      el('button', { text: 'Folder', icon: 'folderPlus', class: 'ghost', title: 'A folder to organise surfaces: drag surfaces onto it; hiding it hides all it holds',
+        on: { click: () => { ed.selFolder = ops.addFolder(show, '', this.currentFolder()); ed.commit(); this.render(); } } }),
+      el('span', { class: 'spacer' }),
+      el('button', { icon: 'up', class: 'ghost iconbtn', 'aria-label': 'Move up', disabled: !sel, title: 'Move up: draw it in front of the one above', on: { click: () => { ops.moveSurface(show, sel.id, -1); ed.commit(); this.render(); } } }),
+      el('button', { icon: 'down', class: 'ghost iconbtn', 'aria-label': 'Move down', title: 'Move down: draw it behind the one below', disabled: !sel, on: { click: () => { ops.moveSurface(show, sel.id, +1); ed.commit(); this.render(); } } }),
+      el('button', { icon: 'copy', class: 'ghost iconbtn', 'aria-label': 'Duplicate', title: 'Duplicate', disabled: !sel, on: { click: () => { const c = ed.duplicate(sel); ed.select(c.id); ed.commit(); } } }),
+      el('button', { icon: 'trash', class: 'ghost iconbtn danger', 'aria-label': 'Delete', disabled: !sel && !ed.selFolder, title: ed.selFolder ? 'Delete the folder (what is in it moves up a level)' : 'Delete the surface',
+        on: { click: () => { if (ed.selFolder) { ops.removeFolder(show, ed.selFolder); ed.selFolder = 0; } else { ops.removeSurface(show, sel.id); ed.select(0); } ed.commit(); this.render(); } } })));
 
     const list = el('div', { class: 'list tree' });
-    const tags = { quad: '▭', circle: '◯', triangle: '△', line: '╱', freeform: '✶', object3d: '❒' };
     // drag and drop: surfaces and folders onto folders (or onto the top-level strip)
     const dropOn = (node, folder) => {
       node.addEventListener('dragover', e => { e.preventDefault(); node.classList.add('drop'); });
@@ -72,10 +75,10 @@ export class Panels {
         if (f.parent !== parent) continue;
         const dim = !isShownFolder(show, f.parent);
         const row = el('div', { class: 'item folder' + (ed.selFolder === f.id ? ' selected' : '') + (dim ? ' dimmed' : ''), style: { paddingLeft: `${6 + depth * 14}px` }, 'data-folder': f.id,
-          on: { click: e => { if (e.target.tagName === 'INPUT') return; if (e.target.classList.contains('twisty')) { f.open = !f.open; ed.commit(); this.render(); return; } ed.selFolder = f.id; ed.sel.surface = 0; this.render(); } } },
-          el('span', { class: 'twisty', text: f.open ? '▾' : '▸' }),
+          on: { click: e => { if (e.target.tagName === 'INPUT') return; if (e.target.closest('.twisty')) { f.open = !f.open; ed.commit(); this.render(); return; } ed.selFolder = f.id; ed.sel.surface = 0; this.render(); } } },
+          el('span', { class: 'twisty' + (f.open ? ' open' : ''), icon: 'chevron', iconSize: 14 }),
           checkbox(f.visible, v => { f.visible = v; ed.commit(); this.render(); }, { title: 'Visible (hides everything inside)' }),
-          el('span', { class: 'tag', text: '🗀' }), el('span', { text: f.name }));
+          el('span', { class: 'tag', icon: 'folder' }), el('span', { class: 'name', text: f.name }));
         drag(row, `folder:${f.id}`); dropOn(row, f.id);
         list.append(row);
         if (f.open) addRows(f.id, depth + 1);
@@ -86,14 +89,14 @@ export class Panels {
         const row = el('div', { class: 'item' + (sel === s ? ' selected' : '') + (dim ? ' dimmed' : ''), style: { paddingLeft: `${6 + depth * 14}px` }, 'data-surface': s.id,
           on: { click: e => { if (e.target.tagName !== 'INPUT') ed.select(s.id); } } },
           checkbox(s.p.visible >= 0.5, v => { this.setParam(s, 'visible', v ? 1 : 0, true); }, { title: 'Visible' }),
-          el('span', { class: 'tag', text: tags[s.shape] }), el('span', { text: s.name }));
+          el('span', { class: 'tag', icon: SHAPE_ICONS[s.shape] }), el('span', { class: 'name', text: s.name }));
         drag(row, `surface:${s.id}`);
         list.append(row);
       }
     };
     addRows(0, 0);
-    if (show.folders.size) { const top = el('div', { class: 'item droptop', text: '↥ drop here for the top level' }); dropOn(top, 0); list.append(top); }
-    if (!show.surfaces.length) list.append(el('div', { class: 'hint', text: 'No surfaces yet: add one above.' }));
+    if (show.folders.size) { const top = el('div', { class: 'item droptop', text: 'Drop here to move to the top level' }); dropOn(top, 0); list.append(top); }
+    if (!show.surfaces.length) list.append(el('div', { class: 'hint', style: { padding: '6px 8px' }, text: 'No surfaces yet: add one above.' }));
     b.append(list);
     const folder = ed.selFolder && show.folders.get(ed.selFolder);
     if (folder) this.folderInspector(folder);
@@ -115,7 +118,7 @@ export class Panels {
     b.append(row('Inside', select(this.folderOptions(f.id), f.parent, v => { if (!ops.moveFolder(show, f.id, Number(v))) ed.status("A folder can't go inside itself."); ed.commit(); this.render(); })));
     const n = show.surfaces.filter(s => s.folder && ops.folderWithin(show, s.folder, f.id)).length;
     b.append(el('p', { class: 'hint', text: `${n} surface${n === 1 ? '' : 's'} inside. New surfaces are added to the selected folder. Deleting a folder keeps what is in it (it moves up a level).` }));
-    b.append(el('div', { class: 'buttons' }, el('button', { text: 'Delete folder', class: 'danger', on: { click: () => { ops.removeFolder(show, f.id); ed.selFolder = 0; ed.commit(); this.render(); } } })));
+    b.append(el('div', { class: 'buttons' }, el('button', { text: 'Delete folder', icon: 'trash', class: 'danger', on: { click: () => { ops.removeFolder(show, f.id); ed.selFolder = 0; ed.commit(); this.render(); } } })));
   }
 
   setParam(s, key, v, final) {
@@ -132,7 +135,7 @@ export class Panels {
     if (d.isBool || d.format === 'choice') {
       const ctl = d.isBool ? checkbox(s.p[key] >= 0.5, v => this.setParam(s, key, v ? 1 : 0, true))
         : select(LIGHT_MODEL_NAMES.map((n, i) => [i, n]), Math.round(s.p[key]), v => { this.setParam(s, key, Number(v), true); });
-      const keyBtn = el('button', { class: 'key', text: '◆', title: 'Add a keyframe here, at the playhead', on: { click: onKey } });
+      const keyBtn = el('button', { class: 'key', icon: 'key', iconSize: 12, 'aria-label': 'Add keyframe', title: 'Add a keyframe here, at the playhead', on: { click: onKey } });
       const node = row(d.label, ctl, keyBtn);
       this.bindings.push({ refresh: () => { if (d.isBool) ctl.checked = s.p[key] >= 0.5; else if (document.activeElement !== ctl) ctl.value = String(Math.round(s.p[key])); node.classList.toggle('animated', animated()); keyBtn.classList.toggle('on', animated()); } });
       return node;
@@ -190,13 +193,13 @@ export class Panels {
     const ed = this.ed;
     const add = shape => () => { if (s.masks.length >= 6) return; ed.selMask = s.masks.length; s.masks.push({ name: `Mask ${s.masks.length + 1}`, shape, mode: 0, enabled: true, feather: 0, min: { x: 0.3, y: 0.3 }, max: { x: 0.7, y: 0.7 }, points: shape === 2 ? [{ x: 0.5, y: 0.25 }, { x: 0.75, y: 0.7 }, { x: 0.25, y: 0.7 }] : [] }); ed.commit(); this.render(); };
     body.append(el('p', { class: 'hint', text: 'Masks cut parts of the surface away (positions are 0..1 across the surface).' }),
-      el('div', { class: 'buttons' }, el('button', { text: '+ Rectangle', on: { click: add(0) } }), el('button', { text: '+ Ellipse', on: { click: add(1) } }), el('button', { text: '+ Polygon', on: { click: add(2) } })),
+      el('div', { class: 'buttons' }, el('button', { text: 'Rectangle', icon: 'plus', on: { click: add(0) } }), el('button', { text: 'Ellipse', icon: 'plus', on: { click: add(1) } }), el('button', { text: 'Polygon', icon: 'plus', on: { click: add(2) } })),
       el('p', { class: 'hint', text: 'Click a mask to edit it on the stage: drag its corners or points, drag inside it to move it. Polygon: double-click an edge to add a point, right-click a point to delete it.' }));
     s.masks.forEach((m, i) => {
       const box = el('div', { class: 'card mask' + (ed.selMask === i ? ' active' : ''), on: { click: e => { if (e.target.closest('input, select, button')) return; ed.selMask = ed.selMask === i ? -1 : i; this.render(); } } });
       box.append(row(m.name, checkbox(m.enabled, v => { m.enabled = v; ed.commit(); }, { title: 'On' }),
         select([[0, 'Hide inside'], [1, 'Show only inside']], m.mode, v => { m.mode = Number(v); ed.commit(); }),
-        el('button', { text: '✕', class: 'danger', title: 'Delete this mask', on: { click: () => { s.masks.splice(i, 1); ed.selMask = -1; ed.commit(); this.render(); } } })));
+        el('button', { icon: 'trash', class: 'ghost iconbtn danger', 'aria-label': 'Delete mask', title: 'Delete this mask', on: { click: () => { s.masks.splice(i, 1); ed.selMask = -1; ed.commit(); this.render(); } } })));
       if (m.shape === 2) box.append(el('p', { class: 'hint', text: `Polygon, ${m.points.length} points.` }));
       if (m.shape !== 2) for (const [label, pt, k] of [['Left', 'min', 'x'], ['Top', 'min', 'y'], ['Right', 'max', 'x'], ['Bottom', 'max', 'y']]) {
         const sl = slider({ label, min: 0, max: 1, step: 0.001, get: () => m[pt][k], set: (v, final) => { m[pt][k] = v; if (m.min.x > m.max.x - 0.01 && pt === 'min') m.min.x = m.max.x - 0.01; final ? ed.commit() : ed.touched(); }, format: v => `${Math.round(v * 100)}%` });
@@ -213,13 +216,14 @@ export class Panels {
     const ed = this.ed, show = ed.show, b = this.body;
     b.append(el('div', { class: 'buttons' },
       select([['', '+ Generator…'], ...GEN_TYPES.map(g => [g.type, g.label])], '', v => { if (v) { const id = this.addGenerator(v); ed.selMedia = id; ed.commit(); this.render(); } }),
-      fileButton('Add files…', 'audio/*,video/*,.obj,.mp3,.wav,.mp4,.webm', true, files => ed.addFiles(files))));
+      fileButton('Add files…', 'audio/*,video/*,.obj,.mp3,.wav,.mp4,.webm', true, files => ed.addFiles(files), { icon: 'plus' })));
     b.append(el('p', { class: 'hint', text: 'Add your song (MP3/WAV), videos (MP4/WebM) and 3D models (OBJ). They are kept in this browser until you download the show.' }));
+    b.append(el('h3', { text: 'Pictures' }));
     const list = el('div', { class: 'list' });
     for (const m of show.mediaList) {
       const kind = m.kind === 'video' ? 'video' : m.type === 'pattern' ? 'test pattern' : genType(m.type)?.label || m.type;
       list.append(el('div', { class: 'item' + (ed.selMedia === m.id ? ' selected' : ''), on: { click: () => { ed.selMedia = m.id; this.render(); } } },
-        el('span', { class: 'tag', text: m.kind === 'video' ? '▶' : '✦' }), el('span', { text: m.name || `Media ${m.id}` }), el('span', { class: 'dim', text: ` ${kind}` })));
+        el('span', { class: 'tag', icon: m.kind === 'video' ? 'video' : m.type === 'pattern' ? 'image' : 'sparkle' }), el('span', { class: 'name', text: m.name || `Media ${m.id}` }), kind.toLowerCase() !== (m.name || '').toLowerCase() && el('span', { class: 'meta', text: kind })));
     }
     b.append(list);
     const m = show.mediaList.find(x => x.id === ed.selMedia);
@@ -273,7 +277,9 @@ export class Panels {
         }
       }
       const w = el('input', { type: 'number', value: m.width || 1920, min: 16, max: 8192, class: 'num' }), h = el('input', { type: 'number', value: m.height || 1080, min: 16, max: 8192, class: 'num' });
-      card.append(row('Size (px)', w, '×', h, el('button', { text: 'Apply', on: { click: () => { m.width = +w.value; m.height = +h.value; changed(true); } } })));
+      const applySize = () => { const W = Math.round(+w.value), H = Math.round(+h.value); if (W >= 16 && H >= 16 && (W !== m.width || H !== m.height)) { m.width = W; m.height = H; changed(true); } };
+      w.addEventListener('change', applySize); h.addEventListener('change', applySize);
+      card.append(row('Size (px)', w, el('span', { class: 'dim', text: '×' }), h));
       card.append(row('Playing', checkbox(m.playing !== false, x => { m.playing = x; changed(true); })));
     } else if (m.kind === 'video') {
       card.append(el('p', { class: 'hint', text: m.pathRel || m.path }));
@@ -281,8 +287,8 @@ export class Panels {
     } else card.append(el('p', { class: 'hint', text: 'The built-in test pattern: handy for lining surfaces up with real objects.' }));
     const sel = ed.selected();
     card.append(el('div', { class: 'buttons' },
-      el('button', { text: 'Use on selected surface', disabled: !sel, on: { click: () => { sel.media = m.id; ed.commit(); } } }),
-      m.id !== 1 && el('button', { text: 'Remove', class: 'danger', on: { click: () => {
+      el('button', { text: 'Use on selected surface', class: 'primary', disabled: !sel, on: { click: () => { sel.media = m.id; ed.commit(); } } }),
+      m.id !== 1 && el('button', { text: 'Remove', icon: 'trash', class: 'danger', on: { click: () => {
         show.mediaList = show.mediaList.filter(x => x !== m); show.media.delete(m.id);
         for (const s of show.surfaces) if (s.media === m.id) s.media = 1;
         ed.selMedia = 0; ed.commit(); this.render();
@@ -292,25 +298,26 @@ export class Panels {
 
   songCard(a) {
     const ed = this.ed, show = ed.show;
-    const bpm = el('input', { type: 'number', value: a.bpm ? +a.bpm.toFixed(2) : '', min: 20, max: 300, step: 0.01, class: 'num', placeholder: '?' });
+    const bpm = el('input', { type: 'number', value: a.bpm ? +a.bpm.toFixed(2) : '', min: 20, max: 300, step: 0.01, class: 'num', style: { width: '72px' }, placeholder: '?', 'aria-label': 'Tempo in beats per minute' });
     bpm.addEventListener('change', () => { a.bpm = Math.max(0, +bpm.value || 0); ed.commit(); });
     const off = el('input', { type: 'number', value: +a.beatOffset.toFixed(3), min: 0, step: 0.001, class: 'num' });
     off.addEventListener('change', () => { a.beatOffset = Math.max(0, +off.value || 0); ed.commit(); });
     let taps = [];
-    const tap = el('button', { text: 'Tap', title: 'Tap along with the beat a few times', on: { click: () => {
+    const tap = el('button', { text: 'Tap tempo', title: 'Tap along with the beat a few times', on: { click: () => {
       const now = performance.now() / 1000;
       taps = taps.filter(t => now - t < 3).concat(now);
       if (taps.length >= 4) { const span = (taps[taps.length - 1] - taps[0]) / (taps.length - 1); a.bpm = 60 / span; bpm.value = a.bpm.toFixed(2); ed.commit(); }
     } } });
-    const detect = el('button', { text: 'Detect', title: 'Find the tempo and the first beat automatically', on: { click: async () => {
+    const detect = el('button', { text: 'Detect', icon: 'sparkle', title: 'Find the tempo and the first beat automatically', on: { click: async () => {
       const r = await ed.detectTempo(a.id);
       if (r) { bpm.value = a.bpm.toFixed(2); off.value = a.beatOffset.toFixed(3); } else ed.status('Press Play once first, so the song is loaded.');
     } } });
     this.body.append(el('div', { class: 'card' },
-      el('div', { class: 'song', text: `♪ ${a.name}` }),
-      row('Tempo (BPM)', bpm, tap, detect),
+      el('div', { class: 'song', icon: 'music' }, a.name),
+      row('Tempo', bpm, el('span', { class: 'dim', text: 'BPM' })),
+      row('', tap, detect),
       row('First beat (s)', off),
-      el('div', { class: 'buttons' }, el('button', { text: 'Remove song', class: 'danger', on: { click: () => {
+      el('div', { class: 'buttons' }, el('button', { text: 'Remove song', icon: 'trash', class: 'danger', on: { click: () => {
         show.audioAssets.delete(a.id);
         for (const t of show.timeline.tracks) if (t.kind === 'audio') t.audioClips = t.audioClips.filter(c => c.asset !== a.id);
         show.timeline.tracks = show.timeline.tracks.filter(t => t.kind !== 'audio' || t.audioClips.length);
@@ -325,17 +332,15 @@ export class Panels {
     b.append(el('p', { class: 'hint', text: 'In live mode the keys 1–9 and 0 play these presets (Shift + key stores the current look). Presets play on the published page too.' }));
     for (let slot = 0; slot < 10; slot++) {
       const key = slot === 9 ? 0 : slot + 1, pr = show.presets[slot];
-      const card = el('div', { class: 'card preset' + (ed.player.active === slot ? ' active' : '') });
-      card.append(el('div', { class: 'presethead' }, el('span', { class: 'keycap', text: String(key) }),
-        pr ? textInput(pr.name, v => { pr.name = v; ed.commit(); }) : el('span', { class: 'dim', text: '(empty)' })));
-      const btns = el('div', { class: 'buttons' }, el('button', { text: pr ? 'Store again' : 'Store current look', on: { click: () => { ed.storePreset(slot); this.render(); } } }));
-      if (pr) {
-        const fade = el('input', { type: 'number', min: 0, max: 30, step: 0.1, value: pr.fade, class: 'num', title: 'Fade time (s); 0 = cut' });
-        fade.addEventListener('change', () => { pr.fade = Math.max(0, Math.min(30, +fade.value || 0)); ed.commit(); });
-        btns.append(el('span', { class: 'dim', text: 'fade' }), fade, el('button', { text: 'Play', on: { click: () => ed.playPreset(slot) } }),
-          el('button', { text: 'Clear', class: 'danger', on: { click: () => { show.presets[slot] = null; ed.commit(); this.render(); } } }));
-      }
-      card.append(btns);
+      const card = el('div', { class: 'card preset' + (ed.player.active === slot ? ' active' : '') + (pr ? '' : ' empty') });
+      const store = el('button', { text: pr ? 'Store again' : 'Store current look', class: pr ? '' : 'ghost', on: { click: () => { ed.storePreset(slot); this.render(); } } });
+      if (!pr) { card.append(el('div', { class: 'presethead' }, el('span', { class: 'keycap', text: String(key) }), el('span', { class: 'dim grow', text: 'Empty' }), store)); b.append(card); continue; }
+      card.append(el('div', { class: 'presethead' }, el('span', { class: 'keycap', text: String(key) }), textInput(pr.name, v => { pr.name = v; ed.commit(); }, { 'aria-label': `Preset ${key} name` }),
+        el('button', { icon: 'play', class: 'iconbtn', 'aria-label': `Play preset ${key}`, title: 'Play', on: { click: () => ed.playPreset(slot) } }),
+        el('button', { icon: 'trash', class: 'ghost iconbtn danger', 'aria-label': `Clear preset ${key}`, title: 'Clear', on: { click: () => { show.presets[slot] = null; ed.commit(); this.render(); } } })));
+      const fade = el('input', { type: 'number', min: 0, max: 30, step: 0.1, value: pr.fade, class: 'num', title: 'Fade time (s); 0 = cut', 'aria-label': 'Fade time in seconds' });
+      fade.addEventListener('change', () => { pr.fade = Math.max(0, Math.min(30, +fade.value || 0)); ed.commit(); });
+      card.append(el('div', { class: 'buttons', style: { margin: '8px 0 0' } }, store, el('span', { class: 'spacer' }), el('label', { class: 'inline dim' }, 'Fade (s)', fade)));
       b.append(card);
     }
   }

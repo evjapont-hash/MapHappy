@@ -1,17 +1,21 @@
 // Small DOM helpers for the web editor's panels.
+import { icon } from './icons.js';
 
-// el('div', { class: 'row', text: 'Hi', on: { click: fn } }, child, ...)
+// el('div', { class: 'row', text: 'Hi', on: { click: fn } }, child, ...)   icon: 'name' puts that icon first
 export function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v === undefined || v === null || v === false) continue;
+    if (k === 'icon') continue;
     if (k === 'class') n.className = v;
     else if (k === 'text') n.textContent = v;
     else if (k === 'on') for (const [ev, fn] of Object.entries(v)) n.addEventListener(ev, fn);
     else if (k === 'style') Object.assign(n.style, v);
+    else if (k === 'iconSize') continue;
     else if (k in n && typeof v !== 'string') n[k] = v;
     else n.setAttribute(k, v === true ? '' : v);
   }
+  if (attrs.icon) n.prepend(icon(attrs.icon, attrs.iconSize || 16));
   for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) n.append(c instanceof Node ? c : document.createTextNode(String(c)));
   return n;
 }
@@ -28,7 +32,7 @@ export function slider(opts) {
   const step = opts.step ?? (opts.max - opts.min) / 1000;
   const input = el('input', { type: 'range', min: opts.min, max: opts.max, step, title: opts.title });
   const value = el('span', { class: 'value', title: 'Click to type a value' });
-  const key = opts.onKey ? el('button', { class: 'key', title: 'Add a keyframe here, at the playhead', text: '◆' }) : null;
+  const key = opts.onKey ? el('button', { class: 'key', title: 'Add a keyframe here, at the playhead', 'aria-label': 'Add keyframe', icon: 'key', iconSize: 12 }) : null;
   const label = el('label', { text: opts.label });
   const node = el('div', { class: 'row slider' }, label, el('div', { class: 'ctl' }, input, value, key));
   let dragging = false;
@@ -90,7 +94,7 @@ export function section(title, build, { open = false, id = title } = {}) {
 }
 
 // A file picker button.
-export function fileButton(label, accept, multiple, onFiles, attrs = {}) {
+export function fileButton(label, accept, multiple, onFiles, attrs = {}) {   // attrs may include icon
   const input = el('input', { type: 'file', accept, multiple, style: { display: 'none' } });
   input.addEventListener('change', () => { const f = [...input.files]; input.value = ''; if (f.length) onFiles(f); });
   return el('span', {}, el('button', { text: label, on: { click: () => input.click() }, ...attrs }), input);

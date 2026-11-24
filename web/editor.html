@@ -4,95 +4,175 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MapHappy Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
 <style>
-  :root { --bg: #111214; --panel: #1a1b1f; --panel2: #202127; --text: #e2e2e6; --dim: #8b8b95; --accent: #26c6d0; --line: #2b2c33; --key: #f2c14e; --danger: #e05a5a; }
+  :root { color-scheme: dark;
+    /* surfaces */
+    --bg: #0b0f17; --surface: #111722; --surface-2: #161d2a; --raised: #1c2433; --hover: #232c3d; --input: #0e131c;
+    --border: rgba(148, 163, 184, 0.14); --border-strong: rgba(148, 163, 184, 0.24);
+    /* text */
+    --text: #e7ecf3; --text-2: #b4bfce; --muted: #8b97a8;
+    /* roles */
+    --accent: #26c6d0; --accent-strong: #1fb2bb; --accent-soft: rgba(38, 198, 208, 0.14); --on-accent: #04191b;
+    --key: #f5b544; --mask: #e45fcf; --danger: #ef5b5b; --danger-soft: rgba(239, 91, 91, 0.14);
+    --radius: 6px; --radius-lg: 8px; --ctl-h: 28px;
+    --font: Inter, system-ui, "Segoe UI", Roboto, Arial, sans-serif; --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+    --ease: 150ms ease;
+  }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
-  body { background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, "Segoe UI", Roboto, Arial, sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--font); display: flex; flex-direction: column; overflow: hidden; -webkit-font-smoothing: antialiased; }
   button, select, input, textarea { font: inherit; color: var(--text); }
-  button { background: #2a2b32; border: 1px solid #34353d; border-radius: 4px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
-  button:hover:not(:disabled) { background: #33343c; }
-  button:disabled { opacity: 0.45; cursor: default; }
-  button.on { background: #17616a; border-color: var(--accent); }
-  button.danger:hover:not(:disabled) { background: #5a2626; }
-  button.primary { background: #17616a; border-color: #1f8892; }
-  select, input[type=text], input[type=number], textarea { background: #24252b; border: 1px solid #34353d; border-radius: 4px; padding: 2px 5px; min-width: 0; }
-  textarea { width: 100%; resize: vertical; }
-  input[type=range] { accent-color: var(--accent); min-width: 0; }
-  input[type=color] { width: 44px; height: 22px; padding: 0; border: 1px solid #34353d; background: none; }
-  input.num { width: 70px; }
+  .icon { flex: none; display: block; }
 
-  header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  header .brand { font-weight: 700; color: var(--accent); margin-right: 8px; font-size: 15px; }
-  header .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+  /* buttons: quiet by default, one primary action per area */
+  button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: var(--ctl-h); padding: 0 10px; background: var(--raised); border: 1px solid var(--border);
+           border-radius: var(--radius); cursor: pointer; white-space: nowrap; font-weight: 500; transition: background var(--ease), border-color var(--ease), color var(--ease); }
+  button:hover:not(:disabled) { background: var(--hover); border-color: var(--border-strong); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
+  button.danger { color: #f3a3a3; }
+  button.danger:hover:not(:disabled) { background: var(--danger-soft); border-color: rgba(239, 91, 91, 0.45); color: #ffc4c4; }
+  button.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+  button.ghost:hover:not(:disabled) { background: var(--hover); color: var(--text); border-color: transparent; }
+  button.ghost.on { background: var(--accent-soft); color: var(--accent); }
+  button.iconbtn { width: var(--ctl-h); padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button:focus:not(:focus-visible) { outline: none; }
+
+  select, input[type=text], input[type=number], textarea { height: var(--ctl-h); background: var(--input); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0 8px; min-width: 0;
+           transition: border-color var(--ease); }
+  select:hover, input[type=text]:hover, input[type=number]:hover, textarea:hover { border-color: rgba(148, 163, 184, 0.36); }
+  select:focus, input[type=text]:focus, input[type=number]:focus, textarea:focus { border-color: var(--accent); outline: none; }
+  select { padding-right: 4px; cursor: pointer; }
+  textarea { width: 100%; height: auto; padding: 6px 8px; resize: vertical; }
+  input[type=number] { font-variant-numeric: tabular-nums; }
+  input[type=range] { accent-color: var(--accent); min-width: 0; height: 18px; cursor: pointer; }
+  input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; cursor: pointer; flex: none; }
+  input[type=color] { width: 44px; height: var(--ctl-h); padding: 2px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--input); cursor: pointer; }
+  input.num { width: 76px; flex: 0 1 76px; min-width: 56px; }
+  a { color: var(--accent); }
+
+  /* top bar */
+  header { display: flex; align-items: center; gap: 4px; height: 48px; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex: none; }
+  header .brand { display: flex; align-items: center; gap: 8px; margin-right: 12px; font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+  header .brand .mark { width: 22px; height: 22px; border-radius: 5px; background: var(--accent); display: grid; place-items: center; color: var(--on-accent); }
+  header .brand .sub { color: var(--muted); font-weight: 500; }
+  header .group { display: flex; align-items: center; gap: 2px; }
+  .sep { width: 1px; height: 22px; background: var(--border); margin: 0 8px; flex: none; }
   header .grow { flex: 1; }
-  header a { color: var(--accent); }
-  #unsaved { color: var(--key); font-size: 12px; }
-  #time { font: 13px ui-monospace, Consolas, monospace; min-width: 70px; display: inline-block; }
-  label.inline { display: inline-flex; align-items: center; gap: 3px; }
-  .file { position: relative; overflow: hidden; display: inline-block; }
+  header a.link { display: inline-flex; align-items: center; gap: 6px; height: var(--ctl-h); padding: 0 8px; border-radius: var(--radius); color: var(--text-2); text-decoration: none; font-weight: 500; transition: background var(--ease), color var(--ease); }
+  header a.link:hover { background: var(--hover); color: var(--text); }
+  #unsaved { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; margin-right: 8px; }
+  #unsaved::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--key); }
+  #unsaved[hidden] { display: none; }
+  #time { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; min-width: 76px; display: inline-block; color: var(--text); }
+  label.inline { display: inline-flex; align-items: center; gap: 6px; }
+  .file { position: relative; overflow: hidden; display: inline-flex; }
   .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .file:focus-within button { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  main { flex: 1; display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 1fr 250px; min-height: 0; }
-  #panel { grid-row: 1 / 3; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-  .tabs { display: flex; border-bottom: 1px solid var(--line); }
-  .tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px; color: var(--dim); border-bottom: 2px solid transparent; }
-  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
-  .panel-body { overflow-y: auto; padding: 8px 10px 40px; flex: 1; }
-  .buttons { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; align-items: center; }
-  .list { border: 1px solid var(--line); border-radius: 4px; max-height: 190px; overflow-y: auto; margin: 4px 0 8px; background: #16171a; }
-  .item { display: flex; align-items: center; gap: 6px; padding: 3px 6px; cursor: pointer; border-bottom: 1px solid #1d1e22; }
-  .item:hover { background: #1f2026; } .item.selected { background: #17616a; }
-  .item .tag { width: 16px; text-align: center; color: var(--accent); } .item.selected .tag { color: #fff; }
+  main { flex: 1; display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 1fr 260px; min-height: 0; }
+
+  /* side panel */
+  #panel { grid-row: 1 / 3; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+  .tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--border); flex: none; }
+  .tabs button { flex: 1; height: 36px; border: 0; border-radius: var(--radius) var(--radius) 0 0; background: none; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button:hover:not(:disabled) { background: var(--surface-2); color: var(--text-2); border-color: transparent; }
+  .tabs button.active { color: var(--text); border-bottom: 2px solid var(--accent); }
+  .tabs button.active .icon { color: var(--accent); }
+  .panel-body { overflow-y: auto; padding: 12px 14px 48px; flex: 1; scrollbar-width: thin; scrollbar-color: #2a3446 transparent; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; align-items: center; }
+  .buttons.toolbar { gap: 2px; margin: 0 0 4px; }
+  .buttons .spacer { flex: 1; }
+  .shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 0 12px; }
+  .shapes button { justify-content: flex-start; padding: 0 8px; color: var(--text-2); }
+  .shapes button .icon { color: var(--accent); }
+
+  .list { border: 1px solid var(--border); border-radius: var(--radius-lg); max-height: 200px; overflow-y: auto; margin: 4px 0 12px; background: var(--input); padding: 3px; scrollbar-width: thin; }
+  .item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; cursor: pointer; border-radius: 5px; color: var(--text-2); transition: background var(--ease); }
+  .item:hover { background: var(--surface-2); color: var(--text); }
+  .item.selected { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+  .item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .tag { color: var(--muted); display: inline-flex; } .item.selected .tag { color: var(--accent); }
+  .item .meta { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .item.dimmed > span { opacity: 0.45; }
-  .item .twisty { width: 12px; color: var(--dim); cursor: pointer; }
-  .item.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
-  .item.droptop { color: var(--dim); font-size: 12px; justify-content: center; cursor: default; }
-  .list.tree { max-height: 260px; }
-  .dim { color: var(--dim); } .hint { color: var(--dim); font-size: 12px; margin: 4px 0; }
-  h3 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
-  h4 { margin: 8px 0 2px; font-size: 12px; color: var(--dim); font-weight: 600; }
-  .row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 6px; margin: 3px 0; }
-  .row > label { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row .ctl { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .item .twisty { width: 14px; color: var(--muted); cursor: pointer; display: inline-flex; transition: transform var(--ease); }
+  .item .twisty.open { transform: rotate(90deg); }
+  .item.drop { outline: 1px dashed var(--accent); outline-offset: -1px; background: var(--accent-soft); }
+  .item.droptop { color: var(--muted); font-size: 12px; justify-content: center; cursor: default; }
+  .list.tree { max-height: 280px; }
+  .dim { color: var(--muted); } .hint { color: var(--muted); font-size: 12px; margin: 6px 0; line-height: 1.5; }
+  h3 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  h4 { margin: 12px 0 4px; font-size: 12px; color: var(--text-2); font-weight: 600; }
+  .row { display: grid; grid-template-columns: 100px 1fr; align-items: center; gap: 8px; margin: 4px 0; min-height: var(--ctl-h); }
+  .row > label { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .ctl { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .row .ctl > select, .row .ctl > input[type=text] { flex: 1; }
   .row.slider input[type=range] { flex: 1; }
-  .row .value { min-width: 52px; text-align: right; font: 12px ui-monospace, Consolas, monospace; cursor: text; color: #cfd0d6; }
-  .row input.typed { width: 64px; }
+  .row .value { min-width: 54px; text-align: right; font: 12px var(--mono); font-variant-numeric: tabular-nums; cursor: text; color: var(--text); padding: 2px 4px; border-radius: 4px; }
+  .row .value:hover { background: var(--surface-2); }
+  .row input.typed { width: 64px; height: 24px; }
   .row.animated > label { color: var(--key); }
-  .row.animated > label::before { content: '● '; }
-  button.key { padding: 0 5px; color: var(--dim); background: none; border-color: transparent; font-size: 12px; }
+  .row.animated > label::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--key); margin: 0 6px 2px 0; }
+  button.key { width: 22px; height: 22px; padding: 0; color: var(--muted); background: none; border-color: transparent; flex: none; }
   button.key.on { color: var(--key); }
-  button.key:hover { color: var(--key); border-color: #3a3b42; }
-  details.section { border-top: 1px solid var(--line); padding: 4px 0; }
-  details.section summary { cursor: pointer; font-weight: 600; padding: 3px 0; color: #d6d7dc; }
-  .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
-  .card.preset.active { border-color: var(--accent); }
-  .card.mask { cursor: pointer; } .card.mask.active { border-color: #ec60d2; }
-  .presethead { display: flex; align-items: center; gap: 8px; }
-  .presethead input { flex: 1; }
-  .keycap { display: inline-block; min-width: 24px; text-align: center; border: 1px solid #44454d; border-bottom-width: 2px; border-radius: 4px; background: #26272d; font: 600 13px ui-monospace, Consolas, monospace; }
-  .song { font-weight: 600; margin-bottom: 4px; }
+  button.key.on .icon { fill: currentColor; }
+  button.key:hover:not(:disabled) { color: var(--key); background: var(--surface-2); border-color: transparent; }
+  details.section { border-top: 1px solid var(--border); }
+  details.section summary { cursor: pointer; font-weight: 600; padding: 10px 0; color: var(--text); list-style: none; display: flex; align-items: center; gap: 10px; border-radius: 4px; }
+  details.section summary::-webkit-details-marker { display: none; }
+  details.section summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform var(--ease); margin-left: 2px; }
+  details.section[open] summary::before { transform: rotate(45deg); }
+  details.section summary:hover { color: var(--accent); }
+  details.section > .body { padding: 0 0 12px; }
+  details.section > .body > button { margin-top: 6px; }
+  .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px 12px; margin: 8px 0; }
+  .card.preset.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .card.mask { cursor: pointer; transition: border-color var(--ease); } .card.mask:hover { border-color: var(--border-strong); } .card.mask.active { border-color: var(--mask); }
+  .presethead { display: flex; align-items: center; gap: 10px; }
+  .presethead input { flex: 1; } .presethead .grow { flex: 1; }
+  .card.preset.empty { padding: 6px 8px 6px 12px; background: transparent; border-style: dashed; }
+  .keycap { display: inline-grid; place-items: center; min-width: 26px; height: 26px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--raised); font: 600 12px var(--mono); color: var(--text-2); }
+  .song { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; } .song .icon { color: var(--accent); }
 
-  #stagewrap { position: relative; min-width: 0; min-height: 0; background: #0d0d0f; }
+  /* stage */
+  #stagewrap { position: relative; min-width: 0; min-height: 0; background: #070a10; }
   #stage, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #overlay { touch-action: none; }
-  .viewbar { position: absolute; top: 8px; right: 10px; display: flex; gap: 4px; }
-  #timelinewrap { border-top: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: #141518; }
-  .tlbar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .viewbar { position: absolute; top: 10px; right: 12px; display: flex; gap: 4px; }
+  .viewbar button { background: rgba(17, 23, 34, 0.88); }
+
+  /* timeline */
+  #timelinewrap { border-top: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+  .tlbar { display: flex; align-items: center; gap: 6px; height: 42px; padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--border); flex: none; }
+  .tlbar .hint { margin: 0 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .tlbar .sep { height: 20px; margin: 0 6px; }
+  #play { min-width: 86px; }
   #timeline { flex: 1; width: 100%; min-height: 0; display: block; touch-action: none; }
 
-  #status { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 20px); background: #26272e; border: 1px solid #3a3b44; border-radius: 6px; padding: 8px 14px; max-width: min(760px, 90vw);
-            opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 10; box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
+  /* overlays */
+  #status { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 12px); background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 10px 16px; max-width: min(760px, 90vw);
+            opacity: 0; transition: opacity 200ms ease, transform 200ms ease; pointer-events: none; z-index: 10; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
   #status.show { opacity: 1; transform: translate(-50%, 0); }
-  .menu { position: fixed; z-index: 20; background: #23242a; border: 1px solid #3a3b44; border-radius: 6px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
-  .menu button { text-align: left; border: 0; background: none; }
-  .menu button:hover { background: #17616a; }
-  #helpbox { position: fixed; right: 16px; top: 52px; width: min(460px, 92vw); max-height: 80vh; overflow-y: auto; background: #1d1e23; border: 1px solid #3a3b44; border-radius: 8px; padding: 12px 16px; z-index: 15; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
-  #helpbox h2 { margin: 0 0 6px; font-size: 15px; color: var(--accent); }
-  #helpbox ol, #helpbox ul { padding-left: 18px; margin: 6px 0; }
-  #helpbox li { margin: 3px 0; }
-  kbd { border: 1px solid #44454d; border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: #26272d; font: 11px ui-monospace, Consolas, monospace; }
+  #status[data-error] { border-color: rgba(239, 91, 91, 0.6); }
+  .menu { position: fixed; z-index: 20; background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 4px; display: flex; flex-direction: column; min-width: 160px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+  .menu button { justify-content: flex-start; border: 0; background: none; height: 30px; }
+  .menu button:hover:not(:disabled) { background: var(--accent-soft); }
+  #helpbox { position: fixed; right: 16px; top: 56px; width: min(480px, 92vw); max-height: 80vh; overflow-y: auto; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 10px; padding: 16px 20px; z-index: 15; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); line-height: 1.55; }
+  #helpbox .icon { display: inline-block; vertical-align: -2px; color: var(--key); }
+  #helpbox h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+  #helpbox ol, #helpbox ul { padding-left: 20px; margin: 8px 0; }
+  #helpbox li { margin: 5px 0; color: var(--text-2); } #helpbox b { color: var(--text); font-weight: 600; }
+  kbd { border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--raised); font: 11px var(--mono); color: var(--text); }
+  code { font: 12px var(--mono); background: var(--raised); padding: 1px 4px; border-radius: 4px; }
+
+  @media (max-width: 1280px) { header .label-wide, .tlbar .hint { display: none; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 
   body.present header, body.present #panel, body.present #timelinewrap, body.present .viewbar { display: none; }
   body.present main { grid-template-columns: 1fr; grid-template-rows: 1fr; }
@@ -101,53 +181,62 @@
 </head>
 <body>
 <header>
-  <span class="brand">MapHappy</span>
-  <button id="new" title="Start a new, empty show">New</button>
-  <span class="file"><button>Open…</button><input id="openFile" type="file" multiple accept=".maphappy,audio/*,video/*,.obj" title="Pick a .maphappy project together with the song, videos and models it uses"></span>
-  <button id="openPublished" title="Edit the show that is published now (web/show/)">Open published show</button>
-  <button id="save" title="Download the project file (Ctrl+S)">Save</button>
-  <button id="zip" class="primary" title="The show and all its files as a .zip, ready to publish">Download for the web</button>
-  <span id="unsaved" hidden>● unsaved</span>
+  <span class="brand"><span class="mark"><span data-icon="quad" data-size="14"></span></span>MapHappy <span class="sub">Editor</span></span>
+  <div class="group" role="group" aria-label="File">
+    <button id="new" class="ghost" title="Start a new, empty show"><span data-icon="file"></span><span class="label-wide">New</span></button>
+    <span class="file"><button class="ghost" tabindex="-1"><span data-icon="open"></span><span class="label-wide">Open…</span></button><input id="openFile" type="file" multiple accept=".maphappy,audio/*,video/*,.obj" aria-label="Open a project" title="Pick a .maphappy project together with the song, videos and models it uses"></span>
+    <button id="openPublished" class="ghost" title="Edit the show that is published now (web/show/)"><span data-icon="cloud"></span><span class="label-wide">Open published</span></button>
+    <button id="save" class="ghost" title="Download the project file (Ctrl+S)"><span data-icon="save"></span><span class="label-wide">Save</span></button>
+  </div>
   <span class="sep"></span>
-  <button id="undo" title="Undo (Ctrl+Z)">↶</button><button id="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+  <div class="group" role="group" aria-label="Edit">
+    <button id="undo" class="ghost iconbtn" title="Undo (Ctrl+Z)" aria-label="Undo"><span data-icon="undo"></span></button>
+    <button id="redo" class="ghost iconbtn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><span data-icon="redo"></span></button>
+  </div>
   <span class="sep"></span>
-  <label class="inline dim">Output <select id="outsize"><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="3840x2160">3840 × 2160</option><option value="1080x1920">1080 × 1920 (tall)</option><option value="1024x1024">1024 × 1024</option></select></label>
+  <label class="inline dim">Output <select id="outsize" title="The size of the picture the show is made for"><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="3840x2160">3840 × 2160</option><option value="1080x1920">1080 × 1920 (tall)</option><option value="1024x1024">1024 × 1024</option></select></label>
   <span class="grow"></span>
-  <button id="live" title="Live mode: the keys 1–9 and 0 play your presets">Live</button>
-  <button id="output" title="A second window with only the stage: drag it onto the projector and double-click it for full screen">Output ⧉</button>
-  <button id="present" title="Full screen, no handles (Esc to come back)">Present</button>
-  <a href="index.html" target="_blank" title="The published page (shows what was last pushed to GitHub)">View published ↗</a>
-  <button id="help">? Help</button>
+  <span id="unsaved" hidden>Unsaved changes</span>
+  <div class="group" role="group" aria-label="Show">
+    <button id="live" class="ghost" title="Live mode: the keys 1–9 and 0 play your presets"><span data-icon="live"></span>Live</button>
+    <button id="output" class="ghost" title="A second window with only the stage: drag it onto the projector and double-click it for full screen"><span data-icon="output"></span>Output</button>
+    <button id="present" class="ghost" title="Full screen, no handles (Esc to come back)"><span data-icon="present"></span>Present</button>
+    <a class="link" href="index.html" target="_blank" title="The published page (shows what was last pushed to GitHub)"><span data-icon="external"></span><span class="label-wide">View published</span></a>
+    <button id="help" class="ghost iconbtn" title="How to make a show" aria-label="Help"><span data-icon="help"></span></button>
+  </div>
+  <span class="sep"></span>
+  <button id="zip" class="primary" title="The show and all its files as a .zip, ready to publish"><span data-icon="publish"></span>Download for the web</button>
 </header>
 <main>
-  <aside id="panel"></aside>
-  <section id="stagewrap">
+  <aside id="panel" aria-label="Surfaces, media and presets"></aside>
+  <section id="stagewrap" aria-label="Stage">
     <canvas id="stage"></canvas>
     <canvas id="overlay"></canvas>
-    <div class="viewbar"><button id="viewInput" title="Choose which part of the picture the selected surface shows">Edit input region</button></div>
+    <div class="viewbar"><button id="viewInput" title="Choose which part of the picture the selected surface shows"><span data-icon="crop"></span>Edit input region</button></div>
   </section>
-  <section id="timelinewrap">
+  <section id="timelinewrap" aria-label="Timeline">
     <div class="tlbar">
-      <button id="play" class="primary">▶ Play</button>
-      <span id="time">0:00.00</span>
-      <label class="inline"><input id="snap" type="checkbox" checked> Snap to beats</label>
-      <button id="marker" title="Drop a marker at the playhead (M)">+ Marker</button>
-      <button id="split" title="Split the song clip at the playhead (S). Drag a song clip to move it, drag its ends to trim it, Delete removes it.">Split song</button>
-      <span class="dim">◆ next to a setting = keyframe at the playhead · double-click a row = keyframe · right-click a keyframe = curve / delete · wheel = zoom</span>
+      <button id="play" class="primary"><span data-icon="play"></span>Play</button>
+      <span id="time" aria-label="Playhead time">0:00.00</span>
+      <span class="sep"></span>
+      <label class="inline" title="Keyframes and markers snap to the song's beats"><input id="snap" type="checkbox" checked> Snap to beats</label>
+      <button id="marker" class="ghost" title="Drop a marker at the playhead (M)"><span data-icon="marker"></span>Marker</button>
+      <button id="split" class="ghost" title="Split the song clip at the playhead (S). Drag a song clip to move it, drag its ends to trim it, Delete removes it."><span data-icon="scissors"></span>Split song</button>
+      <span class="hint">Double-click a row to add a keyframe · right-click a keyframe for its curve · scroll to zoom</span>
     </div>
     <canvas id="timeline"></canvas>
   </section>
 </main>
-<div id="status"></div>
+<div id="status" role="status" aria-live="polite"></div>
 <div id="helpbox" hidden>
   <h2>Making a show</h2>
   <ol>
     <li><b>Add your song</b>: Media tab → <i>Add files…</i>. It goes on the timeline and its tempo is detected, so the beats show and keyframes snap to them.</li>
     <li><b>Add surfaces</b> (Surfaces tab): drag their corners on the stage to warp them onto your object. Pick their <i>Picture</i>: a generator, a video, or the test pattern.</li>
-    <li><b>3D model</b>: <i>+ 3D Object</i>, then <i>Load OBJ…</i> (or a built-in cube/sphere/cylinder). Turn <i>Lighting</i> up and set the Sun, Point light and Spotlight; pick Phong, Blinn-Phong or Toon.</li>
-    <li><b>Animate</b>: move the playhead, set a value, press <b>◆</b>. Move the playhead again, change the value: once a setting has a keyframe, changing it adds one at the playhead.</li>
+    <li><b>3D model</b>: <i>3D Object</i>, then <i>Load OBJ…</i> (or a built-in cube/sphere/cylinder). Turn <i>Lighting</i> up and set the Sun, Point light and Spotlight; pick Phong, Blinn-Phong or Toon.</li>
+    <li><b>Animate</b>: move the playhead, set a value, press the keyframe button (<span data-icon="key" data-size="12"></span>) next to it. Move the playhead again, change the value: once a setting has a keyframe, changing it adds one at the playhead.</li>
     <li><b>Presets</b> (Presets tab): store looks on the keys 1–9 and 0, and play them live with <i>Live</i> on.</li>
-    <li><b>Projector</b>: <i>Output ⧉</i> opens a window with only the stage. Drag it onto the projector, double-click it for full screen, and line your surfaces up on the real object while you watch it.</li>
+    <li><b>Projector</b>: <i>Output</i> opens a window with only the stage. Drag it onto the projector, double-click it for full screen, and line your surfaces up on the real object while you watch it.</li>
     <li><b>Publish</b>: <i>Download for the web</i> → unzip into your repository's <code>web/</code> folder (replacing <code>web/show</code>) → commit and push. The published page then plays it.</li>
   </ol>
   <p class="dim">Your work is autosaved in this browser (files you add too). Save downloads the project file, which also opens in the desktop MapHappy.</p>

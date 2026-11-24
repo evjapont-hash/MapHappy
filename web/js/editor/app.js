@@ -13,9 +13,11 @@ import { StageView } from './stage.js';
 import { TimelineView } from './timeline-view.js';
 import { Panels, AUDIO_EXT, VIDEO_EXT, OBJ_EXT } from './panels.js';
 import { el } from './ui.js';
+import { icon, fillIcons } from './icons.js';
 import { CHANNEL, frameMessage } from '../output.js';
 
 const $ = id => document.getElementById(id);
+fillIcons();
 const AUTOSAVE = 'maphappy-editor-show';
 const PUBLISHED = new URL('show/show.maphappy', location.href).href;
 
@@ -291,7 +293,10 @@ class Editor {
     this.stageView.draw();
     this.timelineView.draw();
     $('time').textContent = `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
-    $('play').textContent = this.clock.playing ? '❚❚ Pause' : '▶ Play';
+    if (this.shownPlaying !== this.clock.playing) {           // the Play button shows what it will do
+      this.shownPlaying = this.clock.playing;
+      $('play').replaceChildren(icon(this.clock.playing ? 'pause' : 'play'), this.clock.playing ? 'Pause' : 'Play');
+    }
     if (now - (this.lastRefresh || 0) > 120) { this.lastRefresh = now; this.panels.refreshValues(); }
     requestAnimationFrame(n => this.frame(n, now));
   }

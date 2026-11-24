@@ -8,8 +8,8 @@ import { parsePath } from '../params.js';
 import { el } from './ui.js';
 
 const RULER = 24, AUDIO_H = 44, ROW_H = 22, LABEL_W = 190;
-const C = { bg: '#141518', row: '#1a1b1f', rowAlt: '#17181c', line: '#2a2b31', text: '#c9c9cf', dim: '#7c7c86', accent: '#26c6d0',
-            key: '#f2c14e', keySel: '#ffffff', clip: 'rgba(38,198,208,0.10)', wave: 'rgba(132,196,205,0.85)', beat: 'rgba(255,255,255,0.06)', bar: 'rgba(255,255,255,0.13)', marker: '#e46cd3' };
+const C = { bg: '#0b0f17', row: '#111722', rowAlt: '#0e131c', line: 'rgba(148,163,184,0.14)', text: '#cfd6e1', dim: '#8b97a8', accent: '#26c6d0', ruler: '#111722', labels: '#111722',
+            key: '#f5b544', keySel: '#ffffff', clip: 'rgba(38,198,208,0.10)', wave: 'rgba(132,196,205,0.85)', beat: 'rgba(255,255,255,0.06)', bar: 'rgba(255,255,255,0.13)', marker: '#e45fcf' };
 
 export class TimelineView {
   constructor(ed, canvas) {
@@ -93,7 +93,7 @@ export class TimelineView {
               for (let k = Math.floor(ta); k <= Math.floor(tb) && k < p.min.length; k++) if (k >= 0) { lo = Math.min(lo, p.min[k] * clip.gain); hi = Math.max(hi, p.max[k] * clip.gain); }
               if (hi >= lo) c.fillRect(x, mid - hi * amp, 1, Math.max(1, (hi - lo) * amp));
             }
-          } else { c.fillStyle = C.dim; c.font = '11px system-ui'; c.fillText('(press Play to load the sound)', x0 + 6, mid + 4); }
+          } else { c.fillStyle = C.dim; c.font = '11px Inter, system-ui, sans-serif'; c.fillText('(press Play to load the sound)', x0 + 6, mid + 4); }
         }
         continue;
       }
@@ -110,7 +110,7 @@ export class TimelineView {
     c.restore();
 
     // ruler
-    c.fillStyle = '#1e1f24'; c.fillRect(0, 0, W, RULER); c.fillStyle = C.line; c.fillRect(0, RULER - 1, W, 1);
+    c.fillStyle = C.ruler; c.fillRect(0, 0, W, RULER); c.fillStyle = C.line; c.fillRect(0, RULER - 1, W, 1);
     const stepS = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60].find(s => s * this.pps >= 70) || 60;
     c.font = '11px ui-monospace, Consolas, monospace'; c.fillStyle = C.dim;
     for (let s = Math.ceil(t0 / stepS) * stepS; s < t1; s += stepS) {
@@ -123,18 +123,18 @@ export class TimelineView {
     if (px >= LABEL_W) { c.fillStyle = C.accent; c.fillRect(Math.round(px), 0, 2, H); c.beginPath(); c.moveTo(px - 5, 0); c.lineTo(px + 7, 0); c.lineTo(px + 1, 8); c.fill(); }
 
     // labels
-    c.fillStyle = '#1c1d21'; c.fillRect(0, 0, LABEL_W, H); c.fillStyle = C.line; c.fillRect(LABEL_W - 1, 0, 1, H);
-    c.font = '12px system-ui, Segoe UI, sans-serif';
+    c.fillStyle = C.labels; c.fillRect(0, 0, LABEL_W, H); c.fillStyle = C.line; c.fillRect(LABEL_W - 1, 0, 1, H);
+    c.font = '12px Inter, system-ui, Segoe UI, sans-serif';
     c.fillStyle = C.dim; c.fillText(grid ? `${grid.bpm.toFixed(1)} BPM` : 'Tracks', 8, 16);
     for (const r of rows) {
       const t = r.track, selSurface = this.surfaceOf(t) === ed.sel.surface;
       c.fillStyle = t.muted ? C.dim : selSurface ? C.accent : C.text;
-      c.fillText(ellipsis(c, trackLabel(show, t), LABEL_W - 46), 8, r.y + r.h / 2 + 4);
-      c.fillStyle = t.muted ? '#e0a040' : C.dim; c.fillText('M', LABEL_W - 36, r.y + r.h / 2 + 4);
+      c.fillText(ellipsis(c, trackLabel(show, t), LABEL_W - 58), 8, r.y + r.h / 2 + 4);
+      c.fillStyle = t.muted ? '#f5b544' : C.dim; c.fillText('M', LABEL_W - 36, r.y + r.h / 2 + 4);
       if (t.kind === 'param') { c.fillStyle = C.dim; c.fillText('×', LABEL_W - 18, r.y + r.h / 2 + 4); }
     }
     if (!rows.some(r => r.track.kind === 'param'))
-      { c.fillStyle = C.dim; c.fillText('No animation yet: press ◆ next to any setting to set a keyframe at the playhead.', LABEL_W + 12, (rows.length ? rows[rows.length - 1].y + rows[rows.length - 1].h : RULER) + 18); }
+      { c.fillStyle = C.dim; c.fillText('No animation yet: press the keyframe button next to any setting to set a keyframe at the playhead.', LABEL_W + 12, (rows.length ? rows[rows.length - 1].y + rows[rows.length - 1].h : RULER) + 18); }
   }
 
   surfaceOf(t) { const p = parsePath(t.path); return p ? p.id : 0; }

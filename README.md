@@ -88,7 +88,7 @@ the published page). Plain JavaScript and WebGL 2, drawing with the same rendere
 - **Masks** drawn on the stage: rectangles, ellipses and polygons, dragged by their corners and points.
 - **Speed**: *Spin* (degrees per second) for every surface and *Spin X/Y/Z* for 3D objects keep things turning
   in time with the music, and every generator and video has a playback *Speed*.
-- **Projector output**: *Output ⧉* opens a window with only the stage, to drag onto the projector and make full
+- **Projector output**: *Output* opens a window with only the stage, to drag onto the projector and make full
   screen; it follows the editor live (edits, timeline, presets, blackout) and draws exactly the same picture.
 - **Inspector** with every parameter (appearance, transform, picture, colour, line width, 3D view, and the
   lighting: Unlit / Phong / Blinn-Phong / Toon, ambient, sun, point light, spotlight, material), and masks.

@@ -43,7 +43,7 @@ try {
   ed.newShow(); await frames(3);
   expect('New starts a show with one quad, selected', ed.show.surfaces.length === 1 && ed.selected()?.shape === 'quad');
 
-  click(button('+ Circle')); await frames(2);
+  click(button('Circle')); await frames(2);
   expect('+ Circle adds a circle and selects it', ed.show.surfaces.length === 2 && ed.selected().shape === 'circle' && ed.selected().name === 'Circle-1');
 
   // a solid generator on it, so its pixels can be checked
@@ -138,7 +138,7 @@ try {
   click(doc.querySelector('.tabs button[data-tab="surfaces"]')); await frames(1);
   const circ = ed.show.surfaces.find(s => s.shape === 'circle');
   ed.select(circ.id); await frames(1);
-  click(button('+ Folder')); await frames(1);
+  click(button('Folder')); await frames(1);
   const fid = ed.selFolder;
   expect('+ Folder makes a folder, listed and selected', fid > 0 && ed.show.folders.has(fid) && !!doc.querySelector(`#panel [data-folder="${fid}"]`));
   { const src = doc.querySelector(`#panel [data-surface="${circ.id}"]`), dst = doc.querySelector(`#panel [data-folder="${fid}"]`), dt = new win.DataTransfer();
@@ -157,7 +157,7 @@ try {
   ed.select(circ.id); await frames(1);
   const masksSec = [...doc.querySelectorAll('#panel details')].find(d => d.querySelector('summary').textContent.startsWith('Masks'));
   masksSec.open = true; await frames(1);
-  click([...masksSec.querySelectorAll('button')].find(b => b.textContent === '+ Rectangle')); await frames(3);
+  click([...masksSec.querySelectorAll('button')].find(b => b.textContent === 'Rectangle')); await frames(3);
   const mk = circ.masks[0];
   expect('+ Rectangle adds a mask, selected for editing, and it cuts a hole', ed.selMask === 0 && !!mk && stagePixel(0.5, 0.5).r < 20);
   const unitToStage = u => mapPoint(squareToQuad(circ.out), u);          // through the surface's real (perspective) warp
@@ -165,7 +165,7 @@ try {
   expect('dragging a mask corner on the stage resizes it', near(mk.max.x, 0.9, 0.02) && near(mk.max.y, 0.9, 0.02) && near(mk.min.x, 0.3, 1e-6));
   await drag(overlay, onStage(unitToStage({ x: 0.5, y: 0.5 })), onStage(unitToStage({ x: 0.45, y: 0.5 })));
   expect('dragging inside it moves it', near(mk.min.x, 0.25, 0.02) && near(mk.max.x, 0.85, 0.02));
-  click([...masksSec.querySelectorAll('button')].find(b => b.textContent === '+ Polygon')); await frames(2);
+  click([...masksSec.querySelectorAll('button')].find(b => b.textContent === 'Polygon')); await frames(2);
   const pm = circ.masks[1];
   pointer(overlay, 'pointerdown', 0, 0); pointer(overlay, 'pointerup', 0, 0);
   const mid = onStage(unitToStage({ x: 0.5, y: 0.7 })), b2 = overlay.getBoundingClientRect();
@@ -177,7 +177,7 @@ try {
 
   // ---- 3D object and lighting
   click(doc.querySelector('.tabs button[data-tab="surfaces"]')); await frames(1);
-  click(button('+ 3D Object')); await frames(2);
+  click(button('3D Object')); await frames(2);
   const obj = ed.selected();
   expect('+ 3D Object adds one, with the lighting controls', obj.shape === 'object3d' && [...doc.querySelectorAll('#panel h4')].some(h => h.textContent === 'Spotlight'));
   const lm = [...doc.querySelectorAll('#panel .row')].find(r => r.querySelector('label')?.textContent === 'Light model').querySelector('select');

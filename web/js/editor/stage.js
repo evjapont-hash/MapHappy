@@ -18,7 +18,7 @@ void main() {
   frag = (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) ? vec4(0.06, 0.06, 0.07, 1.0) : vec4(texture(uTex, uv).rgb, 1.0);
 }`;
 
-const ACCENT = '#26c6d0', DIM = 'rgba(210,210,215,0.45)', MASK = 'rgba(236,96,210,0.9)';
+const ACCENT = '#26c6d0', DIM = 'rgba(210,210,215,0.45)', MASK = 'rgba(228,95,207,0.9)';
 const circle = [...Array(72)].map((_, i) => { const a = 2 * Math.PI * i / 72; return { x: 0.5 + 0.5 * Math.cos(a), y: 0.5 + 0.5 * Math.sin(a) }; });
 
 // A surface's outline in its own unit square.
@@ -90,7 +90,7 @@ export class StageView {
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, cw, ch);
     if (this.hideHandles) return;
-    c.strokeStyle = '#3a3b42'; c.lineWidth = 1; c.strokeRect(r.x - 0.5, r.y - 0.5, r.w + 1, r.h + 1);
+    c.strokeStyle = 'rgba(148,163,184,0.24)'; c.lineWidth = 1; c.strokeRect(r.x - 0.5, r.y - 0.5, r.w + 1, r.h + 1);
     if (pic.surface) this.drawInput(r, pic.surface); else this.drawOutput(r);
   }
 
@@ -106,7 +106,7 @@ export class StageView {
     const c = this.ctx, q = this.toScreen(r, p);
     c.beginPath();
     if (kind === 'square') c.rect(q.x - 5, q.y - 5, 10, 10); else c.arc(q.x, q.y, kind === 'small' ? 5 : 7, 0, Math.PI * 2);
-    c.fillStyle = 'rgba(20,20,24,0.85)'; c.fill(); c.strokeStyle = color; c.lineWidth = 2; c.stroke();
+    c.fillStyle = 'rgba(11,15,23,0.9)'; c.fill(); c.strokeStyle = color; c.lineWidth = 2; c.stroke();
   }
   cross(r, p) {
     const c = this.ctx, q = this.toScreen(r, p);
@@ -134,7 +134,7 @@ export class StageView {
     this.poly(r, sel.out, ACCENT, 1.5);
     if (sel.shape !== 'quad' && sel.shape !== 'object3d') this.poly(r, mapAll(sel.out, outlineUnit(sel)), ACCENT, 2);
     this.poly(r, [sel.out[0], sel.out[2]], 'rgba(38,198,208,0.35)', 1, false); this.poly(r, [sel.out[1], sel.out[3]], 'rgba(38,198,208,0.35)', 1, false);
-    sel.masks.forEach((m, i) => this.poly(r, mapAll(sel.out, maskOutline(m)), m.enabled ? MASK : 'rgba(236,96,210,0.35)', i === this.ed.selMask ? 2.5 : 1.5));
+    sel.masks.forEach((m, i) => this.poly(r, mapAll(sel.out, maskOutline(m)), m.enabled ? MASK : 'rgba(228,95,207,0.35)', i === this.ed.selMask ? 2.5 : 1.5));
     const mk = this.mask(sel);
     if (mk) { mapAll(sel.out, maskHandles(mk)).forEach(p => this.handle(r, p, 'square', MASK)); return; }       // the selected mask is what you edit
     const free = sel.shape === 'freeform';
