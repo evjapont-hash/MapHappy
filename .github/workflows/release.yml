@@ -1,0 +1,74 @@
+name: Release
+
+# Pushing a tag such as v1.0.0 builds the Windows app, tests it, and publishes it as a GitHub release with a .zip to
+# download. Running it by hand only makes the .zip (under the run's artifacts), to check it first.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg packages (FFmpeg takes a while to build)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg-cache
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
+
+      - name: Create the cache folder
+        run: New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DMAPHAPPY_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Put together the download
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $d = 'MapHappy'
+          New-Item -ItemType Directory -Force -Path "$d\licenses", "$d\example" | Out-Null
+          Copy-Item build\Release\MapHappy.exe $d
+          Copy-Item build\Release\*.dll $d
+          # the Visual C++ runtime, so it runs on computers that don't have it installed
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
+          if (-not $crt) { throw 'The Visual C++ runtime was not found' }
+          foreach ($f in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') { Copy-Item "$($crt.FullName)\$f" $d }
+          Copy-Item LICENSE "$d\LICENSE.txt"
+          Copy-Item assets\fonts\Inter-LICENSE.txt "$d\licenses\Inter.txt"
+          Get-ChildItem build\vcpkg_installed\x64-windows\share\*\copyright | ForEach-Object { Copy-Item $_.FullName "$d\licenses\$($_.Directory.Name).txt" }
+          foreach ($dep in 'glfw', 'imgui', 'miniaudio', 'nlohmann_json', 'glad') {
+            $l = Get-ChildItem "build\_deps\$dep-src\LICENSE*" -File | Select-Object -First 1
+            if ($l) { Copy-Item $l.FullName "$d\licenses\$dep.txt" }
+          }
+          Copy-Item -Recurse web\show\* "$d\example"
+          Get-ChildItem -Recurse $d | Select-Object FullName, Length | Format-Table -AutoSize
+          Compress-Archive -Path $d -DestinationPath MapHappy-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MapHappy-windows
+          path: MapHappy-windows.zip
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" MapHappy-windows.zip --title "MapHappy ${{ github.ref_name }}" --notes-file docs/release-notes.md

@@ -18,6 +18,25 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+// MapHappy can't start: say why (on Windows there is no console to say it in).
+static int cannotStart(const char* why) {
+    std::fprintf(stderr, "%s\n", why);
+#ifdef _WIN32
+    MessageBoxA(nullptr, why, "MapHappy", MB_OK | MB_ICONERROR);
+#endif
+    return 1;
+}
+
 // Path of a file dropped onto the window. GLFW calls this from glfwPollEvents().
 static std::string g_droppedPath;
 static bool g_closeRequested = false;
@@ -99,7 +118,7 @@ static void run(GLFWwindow* window) {
 }   // project (and every texture it owns) is destroyed here, while the OpenGL context still exists
 
 int main() {
-    if (!glfwInit()) { std::fprintf(stderr, "GLFW init failed\n"); return 1; }
+    if (!glfwInit()) return cannotStart("MapHappy couldn't start its window system (GLFW).");
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -109,7 +128,7 @@ int main() {
 #endif
 
     GLFWwindow* window = glfwCreateWindow(1600, 900, "MapHappy", nullptr, nullptr);
-    if (!window) { std::fprintf(stderr, "Window creation failed\n"); glfwTerminate(); return 1; }
+    if (!window) { glfwTerminate(); return cannotStart("MapHappy couldn't open its window. It needs a graphics card and driver with OpenGL 3.3."); }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
     {                                             // the logo, for the title bar and the task bar (macOS uses the app bundle's instead)
@@ -125,7 +144,7 @@ int main() {
     glfwSetWindowCloseCallback(window, onClose);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::fprintf(stderr, "GLAD load failed\n"); return 1;
+        return cannotStart("MapHappy couldn't load OpenGL. Try updating the graphics driver.");
     }
 
     IMGUI_CHECKVERSION();

@@ -103,6 +103,9 @@ add_executable(MapHappy src/main.cpp)
 if(WIN32)
   target_sources(MapHappy PRIVATE assets/MapHappy.rc)          # the program's icon in Explorer
 endif()
+if(MSVC)
+  target_link_options(MapHappy PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)      # no console window behind the app
+endif()
 target_link_libraries(MapHappy PRIVATE maphappy_core)
 
 if(MAPHAPPY_BUILD_TESTS)

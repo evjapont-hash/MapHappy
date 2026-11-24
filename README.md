@@ -14,7 +14,15 @@ artwork from any commercial product and is not affiliated with one.
 > Status: working and in active development. Developed and tested on Windows. The code also
 > builds and passes its tests on Linux and macOS in CI, but nobody has used the app on a Mac yet.
 
-<!-- Add screenshots here: the editor (Input + Stage + Conductor), and a surface being warped. -->
+**[Try the web editor](https://evjapont-hash.github.io/MapHappy/editor.html)** (nothing to install) ·
+**[Watch a show](https://evjapont-hash.github.io/MapHappy/)** ·
+**[Download for Windows](https://github.com/evjapont-hash/MapHappy/releases/latest)**
+
+![The desktop editor: the surfaces and their settings, the input and stage views, and the Conductor timeline](docs/desktop-editor.png)
+
+| Live presets (desktop) | Web editor |
+|---|---|
+| ![Live mode: preset pads on the number keys](docs/desktop-live.png) | ![The editor in the browser](docs/web-editor.png) |
 
 ## Features
 
@@ -187,6 +195,7 @@ The first configure builds FFmpeg through vcpkg (10 to 20 minutes, once).
 | [FFmpeg](https://ffmpeg.org/) (via vcpkg) | video decoding | LGPL (dynamically linked) |
 | [miniaudio](https://miniaud.io/) | audio decoding and output | public domain / MIT-0 |
 | [nlohmann/json](https://github.com/nlohmann/json) | project files | MIT |
+| [Inter](https://rsms.me/inter/) | the user interface's typeface | OFL 1.1 |
 
 ## How it works
 
@@ -211,6 +220,8 @@ A few of the more interesting pieces, for anyone reading the code:
   converted to RGBA and flipped for OpenGL, looping with monotonic timestamps.
 - **Output window** (`OutputWindow.h`, `OutputController.h`): a second GLFW window created with a
   *shared* OpenGL context, so it samples the stage texture directly.
+- **Undo** (`UndoHistory.h`): whole-project snapshots, taken when an edit ends. Putting one back reuses the
+  videos, generators and songs that are already open, so it is instant and playback isn't interrupted.
 - **Safety** (`ProjectIO.cpp`): a project is fully read and validated before it replaces the open
   one; damaged values are repaired with warnings instead of trusted.
 
@@ -220,6 +231,8 @@ A few of the more interesting pieces, for anyone reading the code:
 src/
   main.cpp                 app loop
   Editor.h                 menus, panels, dialogs, inspector
+  Theme.h  UiFont.h        the look, the logo, the typeface
+  UndoHistory.h            undo / redo
   ConductorPanel.h         timeline UI
   Timeline.h  Params.h     timeline engine, animatable parameter table
   Surface.h  Project.h     data model
@@ -248,6 +261,11 @@ cmake -S . -B build -DMAPHAPPY_BUILD_TESTS=ON -DMAPHAPPY_GL_TESTS=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+## Releasing
+
+Pushing a tag such as `v1.0.0` runs `.github/workflows/release.yml`, which builds and tests the Windows app and
+publishes it as a GitHub release. The README's desktop pictures are made by the `readme_shots` program.
 
 ## License
 
