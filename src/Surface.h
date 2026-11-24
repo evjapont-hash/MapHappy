@@ -59,6 +59,39 @@ inline std::vector<Vec2> defaultPolygon() {  // a hexagon filling the quad
     return p;
 }
 
+// A mask cuts part of a surface away. It lives in the surface's own 0..1 square (like a freeform outline), so it
+// follows the surface's warp, transform and shape. Several masks combine: each one multiplies what is left.
+enum class MaskShape { Rectangle = 0, Ellipse = 1, Polygon = 2 };
+enum class MaskMode  { Hide = 0, ShowOnly = 1 };       // hide what is inside it / show only what is inside it
+constexpr int kMaxMasks = 6, kMaxMaskPoints = 16;
+inline const char* maskShapeKey(MaskShape s)  { return s == MaskShape::Ellipse ? "ellipse" : s == MaskShape::Polygon ? "polygon" : "rectangle"; }
+inline const char* maskShapeName(MaskShape s) { return s == MaskShape::Ellipse ? "Ellipse" : s == MaskShape::Polygon ? "Polygon" : "Rectangle"; }
+inline MaskShape maskShapeFromKey(const std::string& k) { return k == "ellipse" ? MaskShape::Ellipse : k == "polygon" ? MaskShape::Polygon : MaskShape::Rectangle; }
+
+struct Mask {
+    std::string name;
+    MaskShape   shape = MaskShape::Rectangle;
+    MaskMode    mode = MaskMode::Hide;
+    bool        enabled = true;
+    float       feather = 0.0f;                   // soft edge width, in the surface's 0..1 units
+    Vec2        min{0.3f, 0.3f}, max{0.7f, 0.7f}; // rectangle / ellipse: its box
+    std::vector<Vec2> points;                     // polygon
+};
+// A mask's outline in the surface's 0..1 square (an ellipse as many points), for drawing and clicking.
+inline std::vector<Vec2> maskOutline(const Mask& m) {
+    if (m.shape == MaskShape::Polygon) return m.points;
+    if (m.shape == MaskShape::Rectangle) return {m.min, Vec2{m.max.x, m.min.y}, m.max, Vec2{m.min.x, m.max.y}};
+    std::vector<Vec2> pts;
+    const float cx = (m.min.x + m.max.x) * 0.5f, cy = (m.min.y + m.max.y) * 0.5f, rx = (m.max.x - m.min.x) * 0.5f, ry = (m.max.y - m.min.y) * 0.5f;
+    for (int i = 0; i < 48; i++) { const float a = 6.2831853f * i / 48.0f; pts.push_back(Vec2{cx + rx * std::cos(a), cy + ry * std::sin(a)}); }
+    return pts;
+}
+inline Mask makeMask(MaskShape shape, const std::string& name) {
+    Mask m; m.shape = shape; m.name = name;
+    if (shape == MaskShape::Polygon) m.points = {{0.5f, 0.25f}, {0.75f, 0.7f}, {0.25f, 0.7f}};
+    return m;
+}
+
 // How a surface combines with what is already on the stage.
 enum class Blend { Over = 0, Add = 1, Multiply = 2, Screen = 3 };
 inline const char* blendKey(Blend b)  { return b == Blend::Add ? "add" : b == Blend::Multiply ? "multiply" : b == Blend::Screen ? "screen" : "over"; }
@@ -101,6 +134,8 @@ struct Surface {
     float lineWidth = 0.02f;
     // ---- Freeform: the polygon's points, in the quad's 0..1 square
     std::vector<Vec2> poly = defaultPolygon();
+    // ---- masks (cut parts of the surface away), applied in order
+    std::vector<Mask> masks;
     // ---- 3D object: which model, and how it is turned and viewed
     MeshKind    meshKind = MeshKind::Cube;
     std::string meshPath;                                     // MeshKind::File only

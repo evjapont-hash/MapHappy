@@ -28,6 +28,9 @@ artwork from any commercial product and is not affiliated with one.
 - **Folders** to organise surfaces: nest them, drag surfaces and folders onto them (or right-click >
   Move to), and untick a folder to hide everything inside it. New surfaces go into the selected folder;
   deleting a folder keeps what was in it.
+- **Masks** (surface inspector > Masks): up to six rectangle, ellipse or polygon masks per surface, each
+  hiding what is inside it or showing only what is inside it, with feather and an on/off switch. They live
+  in the surface's own space, so they follow its warp; drag their handles on the stage.
 - Perspective-correct corner-pin warping (a homography solved per surface and evaluated per pixel on
   the GPU, so grids stay straight, unlike splitting a quad into two triangles).
 - Anti-aliased edges, soft feathering, flips, opacity and **blend modes** (Over, Add, Multiply, Screen).
@@ -83,7 +86,7 @@ artwork from any commercial product and is not affiliated with one.
 | F11 | Show / hide the projector output |
 | Ctrl+N / O / S, Ctrl+Shift+S | New / Open / Save / Save As |
 | Delete | Delete the selected keyframe or clip |
-| Double-click a freeform edge / right-click a point | Add / delete a freeform point |
+| Double-click a freeform or polygon-mask edge / right-click a point | Add / delete a point |
 | Ctrl + wheel, Shift + wheel | Zoom / scroll the timeline |
 | Esc (in the output window) | Close the output window |
 
@@ -185,7 +188,7 @@ ctest --test-dir build --output-on-failure
 ## Roadmap
 
 - Cues: short triggerable timelines and a Timeline Player track to fire them from the Conductor
-- Mesh warp, masks and edge blending for multi-projector setups
+- Mesh warp and edge blending for multi-projector setups
 - Undo / redo
 - Audio-reactive parameters as an extra track type
 - macOS runtime verification (CI builds it; nobody has run it on a Mac yet)

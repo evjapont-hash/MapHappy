@@ -320,7 +320,9 @@ private:
             if (Surface* s = proj_.selected()) {
                 const Vec2* q = isStage ? s->out : s->in;
                 float best = 14.0f;
-                if (isStage && s->shape == Shape::Line) {
+                if (isStage && (handle = maskHandleAt(*s, v)) >= 0) {
+                    // a handle of the selected mask
+                } else if (isStage && s->shape == Shape::Line) {
                     if (screenDist(s->lineA) < best) { best = screenDist(s->lineA); handle = kHandleLineA; }
                     if (screenDist(s->lineB) < best) { best = screenDist(s->lineB); handle = kHandleLineB; }
                 } else {
@@ -347,7 +349,7 @@ private:
             }
             if (handle >= 0) { drag_.handle = handle; drag_.panel = panel; drag_.surfaceId = surfaceId; drag_.prev = mouse; }
         }
-        if (isStage) editFreeformPoints(v);
+        if (isStage && !editMaskPoints(v)) editFreeformPoints(v);
 
         if (drag_.handle >= 0 && drag_.panel == panel) {
             Surface* s = proj_.find(drag_.surfaceId);
@@ -358,6 +360,8 @@ private:
                 const Vec2 other = drag_.handle == kHandleLineA ? s->lineB : s->lineA;
                 if (screenDist(other) > 4.0f) end = mouse;                  // the two ends can't meet (a line needs a direction)
                 syncLineQuad(*s, proj_.stageAspect());
+            } else if (drag_.handle >= kHandleMaskCorner) {
+                dragMask(*s, mouse);
             } else if (drag_.handle >= kHandlePoint) {
                 const int i = drag_.handle - kHandlePoint;
                 Vec2 unit;
@@ -373,6 +377,177 @@ private:
             }
             drag_.prev = mouse;
         }
+    }
+
+    // ------------------------------------------------------------------ masks (on the stage and in the inspector)
+    static constexpr int kHandleMaskCorner = 1000, kHandleMaskMove = 1010, kHandleMaskPoint = 1100;
+    static const ImU32 kMaskColor = IM_COL32(236, 96, 210, 230);
+
+    Mask* selectedMask(Surface& s) { return (selectedMask_ >= 0 && selectedMask_ < (int)s.masks.size()) ? &s.masks[selectedMask_] : nullptr; }
+    static Vec2 boxCorner(const Mask& m, int i) {
+        return i == 0 ? m.min : i == 1 ? Vec2{m.max.x, m.min.y} : i == 2 ? m.max : Vec2{m.min.x, m.max.y};
+    }
+    // Mask outline (or any unit-square points) on the stage, through the surface's MAPPED quad.
+    static bool unitPointsToStage(const Surface& s, const std::vector<Vec2>& unit, std::vector<Vec2>& out) {
+        Mat3 H; out.clear();
+        if (!squareToQuad(s.out, H)) return false;
+        for (Vec2 u : unit) out.push_back(mapPoint(H, u));
+        return true;
+    }
+
+    // Which handle of the selected mask is under the mouse (-1 = none).
+    int maskHandleAt(Surface& s, const View& v) {
+        Mask* m = selectedMask(s);
+        if (!m) return -1;
+        ImGuiIO& io = ImGui::GetIO();
+        auto dist = [&](Vec2 a) { const ImVec2 p = v.toScreen(a); return std::hypot(p.x - io.MousePos.x, p.y - io.MousePos.y); };
+        std::vector<Vec2> pts, unit;
+        if (m->shape == MaskShape::Polygon) unit = m->points;
+        else for (int i = 0; i < 4; i++) unit.push_back(boxCorner(*m, i));
+        if (!unitPointsToStage(s, unit, pts)) return -1;
+        int best = -1; float bd = 11.0f;
+        for (int i = 0; i < (int)pts.size(); i++) if (dist(pts[i]) < bd) { bd = dist(pts[i]); best = i; }
+        if (best >= 0) return (m->shape == MaskShape::Polygon ? kHandleMaskPoint : kHandleMaskCorner) + best;
+        std::vector<Vec2> outline;
+        if (unitPointsToStage(s, maskOutline(*m), outline) && pointInPolygon(outline, v.toNorm(io.MousePos))) return kHandleMaskMove;
+        return -1;
+    }
+
+    void dragMask(Surface& s, Vec2 mouse) {
+        Mask* m = selectedMask(s);
+        Vec2 u, prev;
+        if (!m || !stageToUnit(s, mouse, u)) return;
+        if (drag_.handle >= kHandleMaskPoint) {
+            const int i = drag_.handle - kHandleMaskPoint;
+            if (i < (int)m->points.size()) m->points[i] = u;
+        } else if (drag_.handle == kHandleMaskMove) {
+            if (!stageToUnit(s, drag_.prev, prev)) return;
+            float dx = u.x - prev.x, dy = u.y - prev.y;
+            if (m->shape == MaskShape::Polygon) { for (Vec2& p : m->points) p = clampUnit(Vec2{p.x + dx, p.y + dy}); }
+            else {                                                       // the box keeps its size and stays inside the surface
+                dx = std::max(-m->min.x, std::min(1.0f - m->max.x, dx)); dy = std::max(-m->min.y, std::min(1.0f - m->max.y, dy));
+                m->min.x += dx; m->max.x += dx; m->min.y += dy; m->max.y += dy;
+            }
+        } else {                                                         // a box corner: the opposite corner stays put
+            const Vec2 o = boxCorner(*m, (drag_.handle - kHandleMaskCorner + 2) % 4);
+            if (std::fabs(u.x - o.x) < 0.01f || std::fabs(u.y - o.y) < 0.01f) return;
+            m->min = {std::min(u.x, o.x), std::min(u.y, o.y)}; m->max = {std::max(u.x, o.x), std::max(u.y, o.y)};
+            const bool right = u.x > o.x, down = u.y > o.y;              // dragged past the other side: it is now another corner
+            drag_.handle = kHandleMaskCorner + (down ? (right ? 2 : 3) : (right ? 1 : 0));
+        }
+    }
+
+    // Polygon masks on the stage: double-click an edge to add a point, right-click a point to delete it.
+    // Returns true when a polygon mask is selected (it then gets these clicks instead of a freeform outline).
+    bool editMaskPoints(const View& v) {
+        Surface* s = proj_.selected();
+        Mask* m = s ? selectedMask(*s) : nullptr;
+        if (!m || m->shape != MaskShape::Polygon) return false;
+        if (!ImGui::IsItemHovered()) return true;
+        ImGuiIO& io = ImGui::GetIO();
+        std::vector<Vec2> pts;
+        if (!unitPointsToStage(*s, m->points, pts)) return true;
+        if (ImGui::IsMouseClicked(1)) {
+            int best = -1; float bd = 10.0f;
+            for (int i = 0; i < (int)pts.size(); i++) { const ImVec2 p = v.toScreen(pts[i]); const float d = std::hypot(p.x - io.MousePos.x, p.y - io.MousePos.y); if (d < bd) { bd = d; best = i; } }
+            if (best >= 0 && m->points.size() > 3) m->points.erase(m->points.begin() + best);
+        }
+        if (ImGui::IsMouseDoubleClicked(0) && (int)m->points.size() < kMaxMaskPoints) {
+            int best = -1; float bd = 10.0f; Vec2 at{0, 0};
+            for (int i = 0; i < (int)pts.size(); i++) {
+                const ImVec2 a = v.toScreen(pts[i]), b = v.toScreen(pts[(i + 1) % pts.size()]);
+                const float ex = b.x - a.x, ey = b.y - a.y, len2 = std::max(1e-6f, ex * ex + ey * ey);
+                const float t = std::max(0.0f, std::min(1.0f, ((io.MousePos.x - a.x) * ex + (io.MousePos.y - a.y) * ey) / len2));
+                const float d = std::hypot(a.x + ex * t - io.MousePos.x, a.y + ey * t - io.MousePos.y);
+                if (d < bd) { bd = d; best = i; at = v.toNorm(ImVec2(a.x + ex * t, a.y + ey * t)); }
+            }
+            Vec2 unit;
+            if (best >= 0 && stageToUnit(*s, at, unit)) {
+                m->points.insert(m->points.begin() + best + 1, unit);
+                drag_.handle = kHandleMaskPoint + best + 1; drag_.panel = PanelStage; drag_.surfaceId = s->id; drag_.prev = at;
+            }
+        }
+        return true;
+    }
+
+    // The selected surface's masks on the stage: all their outlines, and the selected one's handles.
+    void drawMaskOverlay(const View& v, const Surface& s) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (int i = 0; i < (int)s.masks.size(); i++) {
+            const Mask& m = s.masks[i];
+            std::vector<Vec2> pts;
+            if (!unitPointsToStage(s, maskOutline(m), pts) || pts.size() < 2) continue;
+            std::vector<ImVec2> sp; for (Vec2 p : pts) sp.push_back(v.toScreen(p));
+            const bool sel = i == selectedMask_;
+            ImU32 col = sel ? kMaskColor : IM_COL32(236, 96, 210, m.enabled ? 130 : 60);
+            dl->AddPolyline(sp.data(), (int)sp.size(), col, ImDrawFlags_Closed, sel ? 2.0f : 1.0f);
+            if (!sel) continue;
+            std::vector<Vec2> unit, hp;
+            if (m.shape == MaskShape::Polygon) unit = m.points; else for (int k = 0; k < 4; k++) unit.push_back(boxCorner(m, k));
+            unitPointsToStage(s, unit, hp);
+            for (Vec2 h : hp) { const ImVec2 c = v.toScreen(h); dl->AddRectFilled(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), kMaskColor); dl->AddRect(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), IM_COL32(20, 20, 24, 255)); }
+        }
+    }
+
+    // The Masks section of the surface inspector.
+    void drawMasksSection(Surface& s) {
+        const bool open = ImGui::CollapsingHeader("Masks");
+        recordRect("header:Masks");
+        if (!open) return;
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped("Masks cut parts of the surface away. Select one to drag its handles on the stage.");
+        ImGui::PopStyleColor();
+        const bool full = (int)s.masks.size() >= kMaxMasks;
+        ImGui::BeginDisabled(full);
+        for (MaskShape shape : {MaskShape::Rectangle, MaskShape::Ellipse, MaskShape::Polygon}) {
+            const std::string label = std::string("+ ") + maskShapeName(shape);
+            if (shape != MaskShape::Rectangle) ImGui::SameLine();
+            if (ImGui::Button(label.c_str())) {
+                int n = 1;
+                for (;; n++) { bool used = false; for (const Mask& m : s.masks) used |= m.name == "Mask " + std::to_string(n); if (!used) break; }
+                s.masks.push_back(makeMask(shape, "Mask " + std::to_string(n)));
+                selectedMask_ = (int)s.masks.size() - 1;
+            }
+            recordRect("button:" + label);
+        }
+        ImGui::EndDisabled();
+        if (full) ImGui::TextDisabled("(at most %d masks per surface)", kMaxMasks);
+
+        int remove = -1;
+        for (int i = 0; i < (int)s.masks.size(); i++) {
+            Mask& m = s.masks[i];
+            ImGui::PushID(i);
+            ImGui::Checkbox("##menabled", &m.enabled);
+            recordRect("maskEnabled:" + m.name);
+            ImGui::SameLine();
+            const std::string label = m.name + (m.mode == MaskMode::ShowOnly ? "  (show only)" : "  (hide)");
+            if (ImGui::Selectable(label.c_str(), i == selectedMask_)) selectedMask_ = i == selectedMask_ ? -1 : i;
+            recordRect("mask:" + m.name);
+            ImGui::PopID();
+        }
+        if (Mask* m = selectedMask(s)) {
+            ImGui::Indent(8.0f);
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", m->name.c_str());
+            if (ImGui::InputText("Mask name", buf, sizeof(buf)) && buf[0]) m->name = buf;
+            int mode = (int)m->mode;
+            const char* modes[] = {"Hide what is inside", "Show only what is inside"};
+            if (ImGui::Combo("Mode##mask", &mode, modes, 2)) m->mode = (MaskMode)mode;
+            recordRect("combo:Mask mode");
+            float f = m->feather * 100.0f;
+            if (ImGui::SliderFloat("Mask feather", &f, 0.0f, 50.0f, "%.0f%%")) m->feather = f / 100.0f;
+            if (m->shape != MaskShape::Polygon) {
+                float a[2] = {m->min.x, m->min.y}, b[2] = {m->max.x, m->max.y};
+                if (ImGui::DragFloat2("Top-left", a, 0.002f, 0.0f, 1.0f, "%.3f")) { m->min = {std::min(a[0], m->max.x - 0.01f), std::min(a[1], m->max.y - 0.01f)}; }
+                if (ImGui::DragFloat2("Bottom-right", b, 0.002f, 0.0f, 1.0f, "%.3f")) { m->max = {std::max(b[0], m->min.x + 0.01f), std::max(b[1], m->min.y + 0.01f)}; }
+            } else {
+                ImGui::TextDisabled("%d points. Double-click an edge to add one, right-click a point to delete it.", (int)m->points.size());
+            }
+            if (ImGui::Button("Delete mask")) remove = selectedMask_;
+            recordRect("button:Delete mask");
+            ImGui::Unindent(8.0f);
+        }
+        if (remove >= 0) { s.masks.erase(s.masks.begin() + remove); selectedMask_ = -1; }
     }
 
     // ------------------------------------------------------------------ toolbar
@@ -421,7 +596,7 @@ private:
         ImGui::SetNextWindowPos(pos);
         ImGui::SetNextWindowSize(size);
         ImGui::Begin("Surfaces", nullptr, kPanel);
-        if (proj_.selectedSurfaceId != lastSelectedSurface_) { lastSelectedSurface_ = proj_.selectedSurfaceId; if (proj_.selectedSurfaceId) selectedFolderId_ = 0; }   // e.g. clicked on the stage
+        if (proj_.selectedSurfaceId != lastSelectedSurface_) { lastSelectedSurface_ = proj_.selectedSurfaceId; selectedMask_ = -1; if (proj_.selectedSurfaceId) selectedFolderId_ = 0; }   // e.g. clicked on the stage
         if (selectedFolderId_ && !proj_.findFolder(selectedFolderId_)) selectedFolderId_ = 0;
 
         if (ImGui::Button("+ Quad"))     addSurfaceHere(Shape::Quad);
@@ -773,6 +948,7 @@ private:
             for (const char* k : {"hue", "saturation", "contrast", "brightness"}) paramSlider(s, k);
             if (ImGui::Button("Reset colour")) for (const char* k : {"tintR", "tintG", "tintB", "hue", "saturation", "contrast", "brightness"}) setParamToDefault(s, k);
         }
+        drawMasksSection(s);
         if (ImGui::CollapsingHeader("Geometry")) {
             if (ImGui::Button("Reset input")) proj_.resetInput(s);
             ImGui::SameLine();
@@ -1007,7 +1183,7 @@ private:
         deferred_ = a; deferredPath_ = path;
     }
 
-    void resetUiAfterLoad() { conductor_.resetSelection(); selectedMediaId_ = 0; selectedFolderId_ = 0; status_.clear(); }
+    void resetUiAfterLoad() { conductor_.resetSelection(); selectedMediaId_ = 0; selectedFolderId_ = 0; selectedMask_ = -1; status_.clear(); }
 
     void newProject() {
         proj_.resetToEmpty();
@@ -1350,6 +1526,7 @@ private:
                 if (proj_.isShown(s) && s.id != proj_.selectedSurfaceId) { Vec2 eo[4]; effectiveOut(s, stageAspect, eo); drawSurfaceOverlay(v, s, eo, false, true); }
             if (Surface* sel = proj_.selected()) {
                 drawSurfaceOverlay(v, *sel, sel->out, true, true);                    // the mapped quad, with its handles
+                drawMaskOverlay(v, *sel);
                 if (!outTransformIsIdentity(*sel)) { Vec2 eo[4]; effectiveOut(*sel, stageAspect, eo); drawEffectiveOutline(v, *sel, eo); }
             }
             ImGui::InvisibleButton("##stage", ImGui::GetContentRegionAvail());
@@ -1364,7 +1541,8 @@ private:
     int           leftTab_  = 1;          // 0 = Media, 1 = Surfaces
     int           viewMode_ = 0;          // 0 = both, 1 = input only, 2 = stage only
     int           selectedMediaId_ = 0;
-    int           selectedFolderId_ = 0, lastSelectedSurface_ = 0;   // a selected folder shows the folder inspector
+    int           selectedFolderId_ = 0, lastSelectedSurface_ = 0;
+    int           selectedMask_ = -1;                               // index into the selected surface's masks   // a selected folder shows the folder inspector
     std::vector<ListOp> listOps_;
     char          pathBuf_[512];
     std::string   status_;

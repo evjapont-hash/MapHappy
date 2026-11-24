@@ -99,6 +99,17 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
         o["in"] = jquad(s.in); o["out"] = jquad(s.out);
         if (s.shape == Shape::Line) { o["lineA"] = jv(s.lineA); o["lineB"] = jv(s.lineB); }
         if (s.shape == Shape::Freeform) { json pts = json::array(); for (Vec2 v : s.poly) pts.push_back(jv(v)); o["points"] = pts; }
+        if (!s.masks.empty()) {
+            json masks = json::array();
+            for (const Mask& m : s.masks) {
+                json mj = {{"name", m.name}, {"shape", maskShapeKey(m.shape)}, {"mode", m.mode == MaskMode::ShowOnly ? "showOnly" : "hide"},
+                           {"enabled", m.enabled}, {"feather", m.feather}};
+                if (m.shape == MaskShape::Polygon) { json pts = json::array(); for (Vec2 v : m.points) pts.push_back(jv(v)); mj["points"] = pts; }
+                else { mj["min"] = jv(m.min); mj["max"] = jv(m.max); }
+                masks.push_back(mj);
+            }
+            o["masks"] = masks;
+        }
         if (s.shape == Shape::Object3D) { o["mesh"] = meshKindKey(s.meshKind); if (s.meshKind == MeshKind::File) putPath(o, "meshPath", s.meshPath, base, haveBase); }
         surfaces.push_back(o);
     }
@@ -311,6 +322,30 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
                 if (ok) for (const json& pj : o["points"]) { Vec2 v; if (!readPoint(pj, v)) { ok = false; break; } pts.push_back(clampUnit(v)); }
                 if (ok && pts.size() >= 3 && pts.size() <= (size_t)kMaxPolyPoints) s.poly = pts;
                 else warn("\"" + s.name + "\" had an unusable freeform outline; it was reset");
+            }
+            if (o.contains("masks") && o["masks"].is_array()) {
+                for (const json& mj : o["masks"]) {
+                    if (!mj.is_object()) continue;
+                    if ((int)s.masks.size() >= kMaxMasks) { warn("\"" + s.name + "\" had more than " + std::to_string(kMaxMasks) + " masks; the extra ones were dropped"); break; }
+                    Mask m;
+                    m.name = get<std::string>(mj, "name", "Mask " + std::to_string(s.masks.size() + 1));
+                    m.shape = maskShapeFromKey(get<std::string>(mj, "shape", "rectangle"));
+                    m.mode = get<std::string>(mj, "mode", "hide") == "showOnly" ? MaskMode::ShowOnly : MaskMode::Hide;
+                    m.enabled = get<bool>(mj, "enabled", true);
+                    m.feather = get<float>(mj, "feather", 0.0f);
+                    m.feather = std::isfinite(m.feather) ? std::max(0.0f, std::min(1.0f, m.feather)) : 0.0f;
+                    bool ok = true;
+                    if (m.shape == MaskShape::Polygon) {
+                        ok = mj.contains("points") && mj["points"].is_array() && mj["points"].size() >= 3 && mj["points"].size() <= (size_t)kMaxMaskPoints;
+                        if (ok) for (const json& pj : mj["points"]) { Vec2 v; if (!readPoint(pj, v)) { ok = false; break; } m.points.push_back(clampUnit(v)); }
+                    } else {
+                        Vec2 a, b;
+                        ok = readPoint(mj.value("min", json()), a) && readPoint(mj.value("max", json()), b);
+                        if (ok) { a = clampUnit(a); b = clampUnit(b); m.min = {std::min(a.x, b.x), std::min(a.y, b.y)}; m.max = {std::max(a.x, b.x), std::max(a.y, b.y)}; }
+                    }
+                    if (!ok) { warn("Skipped a damaged mask on \"" + s.name + "\""); continue; }
+                    s.masks.push_back(m);
+                }
             }
             if (s.shape == Shape::Object3D) {
                 s.meshKind = meshKindFromKey(get<std::string>(o, "mesh", "cube"));

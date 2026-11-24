@@ -19,6 +19,15 @@ uniform vec2  uRes;       // render target size in pixels
 uniform int   uShape;     // 0 quad (and line), 1 circle, 2 triangle, 4 freeform polygon
 uniform vec2  uPoly[64];  // freeform: the polygon, in the unit square
 uniform int   uPolyN;
+// masks, in the surface's unit square: shape 0 rect / 1 ellipse / 2 polygon, mode 0 hide inside / 1 show only inside
+uniform int   uMaskCount;
+uniform int   uMaskShape[6];
+uniform int   uMaskMode[6];
+uniform float uMaskFeather[6];
+uniform vec4  uMaskBox[6];      // rect / ellipse: min x, min y, max x, max y
+uniform int   uMaskStart[6];    // polygon: where its points start in uMaskPts, and how many
+uniform int   uMaskN[6];
+uniform vec2  uMaskPts[96];
 uniform float uOpacity;
 uniform vec2  uFlip;      // 1.0 = flip that axis
 uniform vec3  uTint;
@@ -42,6 +51,38 @@ float polyDistance(vec2 s) {
         if ((a.y > s.y) != (b.y > s.y) && s.x < (b.x - a.x) * (s.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
     }
     return inside ? d : -d;
+}
+
+// How far inside mask i a point is (negative = outside), in unit-square units.
+float maskDistance(int i, vec2 s) {
+    vec4 b = uMaskBox[i];
+    if (uMaskShape[i] == 0) return min(min(s.x - b.x, b.z - s.x), min(s.y - b.y, b.w - s.y));
+    if (uMaskShape[i] == 1) {
+        vec2 c = (b.xy + b.zw) * 0.5, r = max((b.zw - b.xy) * 0.5, vec2(1e-5));
+        return (1.0 - length((s - c) / r)) * min(r.x, r.y);             // close to the true distance near the edge
+    }
+    float d = 1e9;
+    bool inside = false;
+    int n = uMaskN[i], o = uMaskStart[i];
+    for (int k = 0; k < n; k++) {
+        vec2 a = uMaskPts[o + (k == 0 ? n - 1 : k - 1)], e2 = uMaskPts[o + k];
+        vec2 e = e2 - a, w = s - a;
+        float t = clamp(dot(w, e) / max(dot(e, e), 1e-12), 0.0, 1.0);
+        d = min(d, length(w - e * t));
+        if ((a.y > s.y) != (e2.y > s.y) && s.x < (e2.x - a.x) * (s.y - a.y) / (e2.y - a.y) + a.x) inside = !inside;
+    }
+    return inside ? d : -d;
+}
+// What is left of the surface at s after all its masks (1 = untouched, 0 = cut away).
+float maskFactor(vec2 s) {
+    float f = 1.0;
+    for (int i = 0; i < uMaskCount; i++) {
+        float d = maskDistance(i, s);
+        float cover = clamp(d / max(fwidth(d), 1e-6) + 0.5, 0.0, 1.0);        // anti-aliased like the surface's own edges
+        if (uMaskFeather[i] > 0.0) cover = min(cover, smoothstep(-uMaskFeather[i] * 0.5, uMaskFeather[i] * 0.5, d));
+        f *= uMaskMode[i] == 0 ? 1.0 - cover : cover;
+    }
+    return f;
 }
 
 // How far inside the shape a point is, in unit-square units (negative = outside).
@@ -83,6 +124,7 @@ void main() {
     if (edgeAlpha <= 0.0) discard;
     float a = c.a * uOpacity * edgeAlpha * inMedia;
     if (uFeather > 0.0) a *= smoothstep(0.0, uFeather * 0.5, d);
+    if (uMaskCount > 0) a *= maskFactor(s);
     if (a <= 0.0) discard;
 
     vec3 col = c.rgb * uTint;
@@ -147,6 +189,8 @@ public:
         locOpacity_ = u("uOpacity"); locFlip_ = u("uFlip"); locTint_ = u("uTint"); locHue_ = u("uHue"); locSat_ = u("uSat");
         locContrast_ = u("uContrast"); locBright_ = u("uBright"); locFeather_ = u("uFeather"); locBlend_ = u("uBlend");
         locPoly_ = u("uPoly"); locPolyN_ = u("uPolyN");
+        locMaskCount_ = u("uMaskCount"); locMaskShape_ = u("uMaskShape"); locMaskMode_ = u("uMaskMode"); locMaskFeather_ = u("uMaskFeather");
+        locMaskBox_ = u("uMaskBox"); locMaskStart_ = u("uMaskStart"); locMaskN_ = u("uMaskN"); locMaskPts_ = u("uMaskPts");
         glGenVertexArrays(1, &vao_);
         meshProg_ = makeProgram(kMeshVS, kMeshFS);
     }
@@ -225,6 +269,7 @@ public:
             glUniform1f(locBright_, s.brightness);
             glUniform1f(locFeather_, s.feather);
             glUniform1i(locBlend_, (int)s.blend);
+            setMasks(s);
             glDrawArrays(GL_TRIANGLES, 0, 3);
         }
 
@@ -315,6 +360,29 @@ private:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    // The surface's enabled masks, as shader uniforms (a polygon needs at least three points).
+    void setMasks(const Surface& s) {
+        int shape[kMaxMasks] = {}, mode[kMaxMasks] = {}, start[kMaxMasks] = {}, count[kMaxMasks] = {};
+        float feather[kMaxMasks] = {}, box[kMaxMasks * 4] = {};
+        std::vector<float> pts;
+        int n = 0;
+        for (const Mask& m : s.masks) {
+            if (!m.enabled || n >= kMaxMasks) continue;
+            if (m.shape == MaskShape::Polygon && m.points.size() < 3) continue;
+            shape[n] = (int)m.shape; mode[n] = (int)m.mode; feather[n] = m.feather;
+            box[n * 4 + 0] = m.min.x; box[n * 4 + 1] = m.min.y; box[n * 4 + 2] = m.max.x; box[n * 4 + 3] = m.max.y;
+            start[n] = (int)pts.size() / 2;
+            for (size_t k = 0; k < m.points.size() && k < (size_t)kMaxMaskPoints; k++) { pts.push_back(m.points[k].x); pts.push_back(m.points[k].y); }
+            count[n] = (int)pts.size() / 2 - start[n];
+            n++;
+        }
+        glUniform1i(locMaskCount_, n);
+        if (n == 0) return;
+        glUniform1iv(locMaskShape_, n, shape); glUniform1iv(locMaskMode_, n, mode); glUniform1fv(locMaskFeather_, n, feather);
+        glUniform4fv(locMaskBox_, n, box); glUniform1iv(locMaskStart_, n, start); glUniform1iv(locMaskN_, n, count);
+        if (!pts.empty()) glUniform2fv(locMaskPts_, (GLsizei)pts.size() / 2, pts.data());
+    }
+
     static void setBlend(Blend b) {
         switch (b) {
             case Blend::Add:      glBlendFunc(GL_ONE, GL_ONE); break;
@@ -329,5 +397,6 @@ private:
     std::map<int, ObjTarget> objTargets_;                   // by surface id
     GLint locTex_ = -1, locInvOut_ = -1, locIn_ = -1, locRes_ = -1, locShape_ = -1, locOpacity_ = -1, locFlip_ = -1;
     GLint locPoly_ = -1, locPolyN_ = -1;
+    GLint locMaskCount_ = -1, locMaskShape_ = -1, locMaskMode_ = -1, locMaskFeather_ = -1, locMaskBox_ = -1, locMaskStart_ = -1, locMaskN_ = -1, locMaskPts_ = -1;
     GLint locTint_ = -1, locHue_ = -1, locSat_ = -1, locContrast_ = -1, locBright_ = -1, locFeather_ = -1, locBlend_ = -1;
 };
