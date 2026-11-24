@@ -3,18 +3,19 @@
 <head>
 <meta charset="utf-8">
 <title>MapHappy Output</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
   canvas { display: block; width: 100%; height: 100%; }
-  #hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #ddd; background: rgba(20,20,24,0.85); border: 1px solid #333;
-          border-radius: 8px; padding: 14px 20px; font: 14px/1.5 system-ui, "Segoe UI", sans-serif; text-align: center; transition: opacity 0.6s; cursor: default; }
+  #hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #ddd; background: rgba(0,0,0,0.9); border: 1px solid #333;
+          border-radius: 2px; padding: 14px 20px; font: 14px/1.5 system-ui, "Segoe UI", sans-serif; text-align: center; transition: opacity 0.6s; cursor: default; }
   #hint.gone { opacity: 0; pointer-events: none; }
   kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; font: 12px ui-monospace, Consolas, monospace; }
 </style>
 </head>
 <body>
 <canvas id="out"></canvas>
-<div id="hint"><b>MapHappy projector output</b><br>Drag this window onto the projector's screen, then <b>double-click</b> (or press <kbd>F</kbd>) for full screen.<br>
+<div id="hint"><img src="logo.svg" alt="" width="40" height="40" style="display:block;margin:4px auto 14px"><b>MapHappy projector output</b><br>Drag this window onto the projector's screen, then <b>double-click</b> (or press <kbd>F</kbd>) for full screen.<br>
   <kbd>S</kbd> fit / stretch · <kbd>B</kbd> blackout · <kbd>Esc</kbd> leave full screen<br><span id="wait">Waiting for the editor…</span></div>
 <script type="module">
   import { Output, CHANNEL } from './js/output.js';

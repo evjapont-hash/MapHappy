@@ -287,7 +287,7 @@ export class Panels {
     } else card.append(el('p', { class: 'hint', text: 'The built-in test pattern: handy for lining surfaces up with real objects.' }));
     const sel = ed.selected();
     card.append(el('div', { class: 'buttons' },
-      el('button', { text: 'Use on selected surface', class: 'primary', disabled: !sel, on: { click: () => { sel.media = m.id; ed.commit(); } } }),
+      el('button', { text: 'Use on selected surface', disabled: !sel, on: { click: () => { sel.media = m.id; ed.commit(); } } }),
       m.id !== 1 && el('button', { text: 'Remove', icon: 'trash', class: 'danger', on: { click: () => {
         show.mediaList = show.mediaList.filter(x => x !== m); show.media.delete(m.id);
         for (const s of show.surfaces) if (s.media === m.id) s.media = 1;

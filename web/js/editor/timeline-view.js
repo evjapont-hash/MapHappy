@@ -8,8 +8,8 @@ import { parsePath } from '../params.js';
 import { el } from './ui.js';
 
 const RULER = 24, AUDIO_H = 44, ROW_H = 22, LABEL_W = 190;
-const C = { bg: '#0b0f17', row: '#111722', rowAlt: '#0e131c', line: 'rgba(148,163,184,0.14)', text: '#cfd6e1', dim: '#8b97a8', accent: '#26c6d0', ruler: '#111722', labels: '#111722',
-            key: '#f5b544', keySel: '#ffffff', clip: 'rgba(38,198,208,0.10)', wave: 'rgba(132,196,205,0.85)', beat: 'rgba(255,255,255,0.06)', bar: 'rgba(255,255,255,0.13)', marker: '#e45fcf' };
+const C = { bg: '#000', row: '#0a0a0a', rowAlt: '#050505', line: '#1f1f1f', text: '#9a9a9a', dim: '#8a8a8a', accent: '#fff', ruler: '#0a0a0a', labels: '#0a0a0a',
+            key: '#b8b8b8', keySel: '#fff', clip: 'rgba(255,255,255,0.07)', wave: 'rgba(255,255,255,0.75)', beat: 'rgba(255,255,255,0.06)', bar: 'rgba(255,255,255,0.14)', marker: '#8a8a8a' };
 
 export class TimelineView {
   constructor(ed, canvas) {
@@ -81,9 +81,9 @@ export class TimelineView {
       if (t.kind === 'audio') {
         for (const clip of t.audioClips) {
           const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration);
-          c.fillStyle = 'rgba(132,196,205,0.12)'; c.fillRect(x0, r.y + 2, x1 - x0, r.h - 4);
+          c.fillStyle = 'rgba(255,255,255,0.08)'; c.fillRect(x0, r.y + 2, x1 - x0, r.h - 4);
           if (this.ed.sel.audio?.clip === clip) { c.strokeStyle = C.accent; c.lineWidth = 2; c.strokeRect(x0 + 1, r.y + 3, Math.max(2, x1 - x0 - 2), r.h - 6); }
-          c.fillStyle = 'rgba(132,196,205,0.35)'; c.fillRect(x0, r.y + 2, 3, r.h - 4); c.fillRect(x1 - 3, r.y + 2, 3, r.h - 4);   // the trim handles
+          c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(x0, r.y + 2, 3, r.h - 4); c.fillRect(x1 - 3, r.y + 2, 3, r.h - 4);   // the trim handles
           const p = this.peaksFor(clip.asset), mid = r.y + r.h / 2, amp = r.h / 2 - 4;
           if (p) {
             c.fillStyle = C.wave;
@@ -102,6 +102,7 @@ export class TimelineView {
         const x = this.xOf(k.time), y = r.y + r.h / 2, sel = this.isSelected(t, k);
         c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x + 6, y); c.lineTo(x, y + 6); c.lineTo(x - 6, y); c.closePath();
         c.fillStyle = t.muted ? C.dim : sel ? C.keySel : C.key; c.fill();
+        if (sel) { c.beginPath(); c.moveTo(x, y - 9.5); c.lineTo(x + 9.5, y); c.lineTo(x, y + 9.5); c.lineTo(x - 9.5, y); c.closePath(); c.strokeStyle = C.keySel; c.lineWidth = 1.5; c.stroke(); }   // selected: a ring
         if (k.key.interp === 'hold') { c.fillStyle = C.bg; c.fillRect(x - 1.5, y - 1.5, 3, 3); }
       }
     }
@@ -130,7 +131,7 @@ export class TimelineView {
       const t = r.track, selSurface = this.surfaceOf(t) === ed.sel.surface;
       c.fillStyle = t.muted ? C.dim : selSurface ? C.accent : C.text;
       c.fillText(ellipsis(c, trackLabel(show, t), LABEL_W - 58), 8, r.y + r.h / 2 + 4);
-      c.fillStyle = t.muted ? '#f5b544' : C.dim; c.fillText('M', LABEL_W - 36, r.y + r.h / 2 + 4);
+      c.fillStyle = t.muted ? '#fff' : C.dim; c.fillText('M', LABEL_W - 36, r.y + r.h / 2 + 4);
       if (t.kind === 'param') { c.fillStyle = C.dim; c.fillText('×', LABEL_W - 18, r.y + r.h / 2 + 4); }
     }
     if (!rows.some(r => r.track.kind === 'param'))

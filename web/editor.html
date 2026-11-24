@@ -7,17 +7,16 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
+  /* Black and white: the only colour on screen is the show itself (red is kept for errors and deleting). */
   :root { color-scheme: dark;
-    /* surfaces */
-    --bg: #0b0f17; --surface: #111722; --surface-2: #161d2a; --raised: #1c2433; --hover: #232c3d; --input: #0e131c;
-    --border: rgba(148, 163, 184, 0.14); --border-strong: rgba(148, 163, 184, 0.24);
-    /* text */
-    --text: #e7ecf3; --text-2: #b4bfce; --muted: #8b97a8;
-    /* roles */
-    --accent: #26c6d0; --accent-strong: #1fb2bb; --accent-soft: rgba(38, 198, 208, 0.14); --on-accent: #04191b;
-    --key: #f5b544; --mask: #e45fcf; --danger: #ef5b5b; --danger-soft: rgba(239, 91, 91, 0.14);
-    --radius: 6px; --radius-lg: 8px; --ctl-h: 28px;
+    --bg: #000; --surface: #0a0a0a; --surface-2: #101010; --raised: transparent; --hover: #1c1c1c; --input: #0a0a0a;
+    --border: #1f1f1f; --border-strong: #333;
+    --text: #fff; --text-2: #b8b8b8; --muted: #8a8a8a;
+    --accent: #fff; --accent-strong: #d6d6d6; --accent-soft: #1f1f1f; --on-accent: #000;
+    --key: #fff; --mask: #fff; --danger: #ff6b6b; --danger-soft: rgba(255, 107, 107, 0.12);
+    --radius: 2px; --radius-lg: 2px; --ctl-h: 28px;
     --font: Inter, system-ui, "Segoe UI", Roboto, Arial, sans-serif; --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
     --ease: 150ms ease;
   }
@@ -32,26 +31,32 @@
            border-radius: var(--radius); cursor: pointer; white-space: nowrap; font-weight: 500; transition: background var(--ease), border-color var(--ease), color var(--ease); }
   button:hover:not(:disabled) { background: var(--hover); border-color: var(--border-strong); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
-  button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
   button.primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
-  button.danger { color: #f3a3a3; }
-  button.danger:hover:not(:disabled) { background: var(--danger-soft); border-color: rgba(239, 91, 91, 0.45); color: #ffc4c4; }
+  button.danger { color: var(--text-2); }
+  button.danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
   button.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
   button.ghost:hover:not(:disabled) { background: var(--hover); color: var(--text); border-color: transparent; }
-  button.ghost.on { background: var(--accent-soft); color: var(--accent); }
+  button.on, button.ghost.on, button.on:hover:not(:disabled), button.ghost.on:hover:not(:disabled) { background: #fff; border-color: #fff; color: #000; }
   button.iconbtn { width: var(--ctl-h); padding: 0; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   button:focus:not(:focus-visible) { outline: none; }
 
   select, input[type=text], input[type=number], textarea { height: var(--ctl-h); background: var(--input); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0 8px; min-width: 0;
            transition: border-color var(--ease); }
-  select:hover, input[type=text]:hover, input[type=number]:hover, textarea:hover { border-color: rgba(148, 163, 184, 0.36); }
+  select:hover, input[type=text]:hover, input[type=number]:hover, textarea:hover { border-color: #666; }
   select:focus, input[type=text]:focus, input[type=number]:focus, textarea:focus { border-color: var(--accent); outline: none; }
   select { padding-right: 4px; cursor: pointer; }
   textarea { width: 100%; height: auto; padding: 6px 8px; resize: vertical; }
   input[type=number] { font-variant-numeric: tabular-nums; }
-  input[type=range] { accent-color: var(--accent); min-width: 0; height: 18px; cursor: pointer; }
+  /* sliders: a hairline with a small square handle */
+  input[type=range] { appearance: none; -webkit-appearance: none; background: transparent; min-width: 0; height: 24px; margin: 0; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 2px; background: #555; }
+  input[type=range]::-moz-range-track { height: 2px; background: #555; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 14px; margin-top: -6px; background: #fff; border: 0; border-radius: 1px; }
+  input[type=range]::-moz-range-thumb { width: 8px; height: 14px; background: #fff; border: 0; border-radius: 1px; }
+  input[type=range]:hover::-webkit-slider-runnable-track { background: #888; }
+  input[type=range]:hover::-moz-range-track { background: #888; }
   input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; cursor: pointer; flex: none; }
   input[type=color] { width: 44px; height: var(--ctl-h); padding: 2px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--input); cursor: pointer; }
   input.num { width: 76px; flex: 0 1 76px; min-width: 56px; }
@@ -59,8 +64,8 @@
 
   /* top bar */
   header { display: flex; align-items: center; gap: 4px; height: 48px; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex: none; }
-  header .brand { display: flex; align-items: center; gap: 8px; margin-right: 12px; font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
-  header .brand .mark { width: 22px; height: 22px; border-radius: 5px; background: var(--accent); display: grid; place-items: center; color: var(--on-accent); }
+  header .brand { display: flex; align-items: center; gap: 10px; margin-right: 16px; font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+  header .brand img { width: 24px; height: 24px; display: block; }
   header .brand .sub { color: var(--muted); font-weight: 500; }
   header .group { display: flex; align-items: center; gap: 2px; }
   .sep { width: 1px; height: 22px; background: var(--border); margin: 0 8px; flex: none; }
@@ -85,29 +90,32 @@
   .tabs button:hover:not(:disabled) { background: var(--surface-2); color: var(--text-2); border-color: transparent; }
   .tabs button.active { color: var(--text); border-bottom: 2px solid var(--accent); }
   .tabs button.active .icon { color: var(--accent); }
-  .panel-body { overflow-y: auto; padding: 12px 14px 48px; flex: 1; scrollbar-width: thin; scrollbar-color: #2a3446 transparent; }
+  .panel-body { overflow-y: auto; padding: 12px 14px 48px; flex: 1; scrollbar-width: thin; scrollbar-color: #333 transparent; }
   .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; align-items: center; }
   .buttons.toolbar { gap: 2px; margin: 0 0 4px; }
   .buttons .spacer { flex: 1; }
-  .shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 0 12px; }
-  .shapes button { justify-content: flex-start; padding: 0 8px; color: var(--text-2); }
+  .shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 0 0 16px; background: var(--border); border: 1px solid var(--border); }
+  .shapes button { flex-direction: column; gap: 6px; height: 56px; padding: 0 4px; border: 0; border-radius: 0; background: var(--surface); color: var(--text-2); font-size: 12px; }
+  .shapes button:hover:not(:disabled) { color: var(--text); }
   .shapes button .icon { color: var(--accent); }
 
-  .list { border: 1px solid var(--border); border-radius: var(--radius-lg); max-height: 200px; overflow-y: auto; margin: 4px 0 12px; background: var(--input); padding: 3px; scrollbar-width: thin; }
-  .item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; cursor: pointer; border-radius: 5px; color: var(--text-2); transition: background var(--ease); }
+  .list { border: 1px solid var(--border); border-radius: var(--radius-lg); max-height: 200px; overflow-y: auto; margin: 4px 0 12px; scrollbar-width: thin; }
+  .item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; cursor: pointer; color: var(--text-2); transition: background var(--ease); }
   .item:hover { background: var(--surface-2); color: var(--text); }
-  .item.selected { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+  .item.selected, .item.selected:hover { background: #fff; color: #000; font-weight: 500; color-scheme: light; }
+  .item.selected input { accent-color: #000; }
   .item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .item .tag { color: var(--muted); display: inline-flex; } .item.selected .tag { color: var(--accent); }
-  .item .meta { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .item .tag { color: var(--muted); display: inline-flex; } .item.selected .tag { color: #000; }
+  .item .meta { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; } .item.selected .meta { color: #555; }
   .item.dimmed > span { opacity: 0.45; }
   .item .twisty { width: 14px; color: var(--muted); cursor: pointer; display: inline-flex; transition: transform var(--ease); }
+  .item.selected .twisty { color: #000; }
   .item .twisty.open { transform: rotate(90deg); }
   .item.drop { outline: 1px dashed var(--accent); outline-offset: -1px; background: var(--accent-soft); }
   .item.droptop { color: var(--muted); font-size: 12px; justify-content: center; cursor: default; }
   .list.tree { max-height: 280px; }
   .dim { color: var(--muted); } .hint { color: var(--muted); font-size: 12px; margin: 6px 0; line-height: 1.5; }
-  h3 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  h3 { margin: 20px 0 8px; font-size: 13px; font-weight: 600; color: var(--text); } .panel-body > h3:first-child { margin-top: 4px; }
   h4 { margin: 12px 0 4px; font-size: 12px; color: var(--text-2); font-weight: 600; }
   .row { display: grid; grid-template-columns: 100px 1fr; align-items: center; gap: 8px; margin: 4px 0; min-height: var(--ctl-h); }
   .row > label { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -141,11 +149,11 @@
   .song { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; } .song .icon { color: var(--accent); }
 
   /* stage */
-  #stagewrap { position: relative; min-width: 0; min-height: 0; background: #070a10; }
+  #stagewrap { position: relative; min-width: 0; min-height: 0; background: #000; }
   #stage, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #overlay { touch-action: none; }
   .viewbar { position: absolute; top: 10px; right: 12px; display: flex; gap: 4px; }
-  .viewbar button { background: rgba(17, 23, 34, 0.88); }
+  .viewbar button { background: rgba(0, 0, 0, 0.88); }
 
   /* timeline */
   #timelinewrap { border-top: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
@@ -156,14 +164,15 @@
   #timeline { flex: 1; width: 100%; min-height: 0; display: block; touch-action: none; }
 
   /* overlays */
+  #status, .menu { --raised: #101010; }
   #status { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 12px); background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 10px 16px; max-width: min(760px, 90vw);
             opacity: 0; transition: opacity 200ms ease, transform 200ms ease; pointer-events: none; z-index: 10; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
   #status.show { opacity: 1; transform: translate(-50%, 0); }
-  #status[data-error] { border-color: rgba(239, 91, 91, 0.6); }
+  #status[data-error] { border-color: var(--danger); }
   .menu { position: fixed; z-index: 20; background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 4px; display: flex; flex-direction: column; min-width: 160px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
   .menu button { justify-content: flex-start; border: 0; background: none; height: 30px; }
   .menu button:hover:not(:disabled) { background: var(--accent-soft); }
-  #helpbox { position: fixed; right: 16px; top: 56px; width: min(480px, 92vw); max-height: 80vh; overflow-y: auto; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 10px; padding: 16px 20px; z-index: 15; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); line-height: 1.55; }
+  #helpbox { position: fixed; right: 16px; top: 56px; width: min(480px, 92vw); max-height: 80vh; overflow-y: auto; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 16px 20px; z-index: 15; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); line-height: 1.55; }
   #helpbox .icon { display: inline-block; vertical-align: -2px; color: var(--key); }
   #helpbox h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
   #helpbox ol, #helpbox ul { padding-left: 20px; margin: 8px 0; }
@@ -171,7 +180,9 @@
   kbd { border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--raised); font: 11px var(--mono); color: var(--text); }
   code { font: 12px var(--mono); background: var(--raised); padding: 1px 4px; border-radius: 4px; }
 
-  @media (max-width: 1280px) { header .label-wide, .tlbar .hint { display: none; } }
+  header { white-space: nowrap; }
+  @media (max-width: 1640px) { header .label-wide { display: none; } }
+  @media (max-width: 1280px) { .tlbar .hint, header .brand .sub { display: none; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 
   body.present header, body.present #panel, body.present #timelinewrap, body.present .viewbar { display: none; }
@@ -181,12 +192,12 @@
 </head>
 <body>
 <header>
-  <span class="brand"><span class="mark"><span data-icon="quad" data-size="14"></span></span>MapHappy <span class="sub">Editor</span></span>
+  <span class="brand"><img src="logo.svg" alt="">MapHappy <span class="sub">Editor</span></span>
   <div class="group" role="group" aria-label="File">
-    <button id="new" class="ghost" title="Start a new, empty show"><span data-icon="file"></span><span class="label-wide">New</span></button>
+    <button id="new" aria-label="New" class="ghost" title="Start a new, empty show"><span data-icon="file"></span><span class="label-wide">New</span></button>
     <span class="file"><button class="ghost" tabindex="-1"><span data-icon="open"></span><span class="label-wide">Open…</span></button><input id="openFile" type="file" multiple accept=".maphappy,audio/*,video/*,.obj" aria-label="Open a project" title="Pick a .maphappy project together with the song, videos and models it uses"></span>
-    <button id="openPublished" class="ghost" title="Edit the show that is published now (web/show/)"><span data-icon="cloud"></span><span class="label-wide">Open published</span></button>
-    <button id="save" class="ghost" title="Download the project file (Ctrl+S)"><span data-icon="save"></span><span class="label-wide">Save</span></button>
+    <button id="openPublished" aria-label="Open published" class="ghost" title="Edit the show that is published now (web/show/)"><span data-icon="cloud"></span><span class="label-wide">Open published</span></button>
+    <button id="save" aria-label="Save" class="ghost" title="Download the project file (Ctrl+S)"><span data-icon="save"></span><span class="label-wide">Save</span></button>
   </div>
   <span class="sep"></span>
   <div class="group" role="group" aria-label="Edit">
@@ -201,7 +212,7 @@
     <button id="live" class="ghost" title="Live mode: the keys 1–9 and 0 play your presets"><span data-icon="live"></span>Live</button>
     <button id="output" class="ghost" title="A second window with only the stage: drag it onto the projector and double-click it for full screen"><span data-icon="output"></span>Output</button>
     <button id="present" class="ghost" title="Full screen, no handles (Esc to come back)"><span data-icon="present"></span>Present</button>
-    <a class="link" href="index.html" target="_blank" title="The published page (shows what was last pushed to GitHub)"><span data-icon="external"></span><span class="label-wide">View published</span></a>
+    <a class="link" aria-label="View published" href="index.html" target="_blank" title="The published page (shows what was last pushed to GitHub)"><span data-icon="external"></span><span class="label-wide">View published</span></a>
     <button id="help" class="ghost iconbtn" title="How to make a show" aria-label="Help"><span data-icon="help"></span></button>
   </div>
   <span class="sep"></span>
@@ -216,7 +227,7 @@
   </section>
   <section id="timelinewrap" aria-label="Timeline">
     <div class="tlbar">
-      <button id="play" class="primary"><span data-icon="play"></span>Play</button>
+      <button id="play"><span data-icon="play"></span>Play</button>
       <span id="time" aria-label="Playhead time">0:00.00</span>
       <span class="sep"></span>
       <label class="inline" title="Keyframes and markers snap to the song's beats"><input id="snap" type="checkbox" checked> Snap to beats</label>

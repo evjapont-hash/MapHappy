@@ -18,7 +18,7 @@ void main() {
   frag = (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) ? vec4(0.06, 0.06, 0.07, 1.0) : vec4(texture(uTex, uv).rgb, 1.0);
 }`;
 
-const ACCENT = '#26c6d0', DIM = 'rgba(210,210,215,0.45)', MASK = 'rgba(228,95,207,0.9)';
+const ACCENT = '#fff', DIM = 'rgba(255,255,255,0.45)', MASK = 'rgba(255,255,255,0.95)', DASH_MASK = [6, 4], DASH_ANIM = [2, 4];
 const circle = [...Array(72)].map((_, i) => { const a = 2 * Math.PI * i / 72; return { x: 0.5 + 0.5 * Math.cos(a), y: 0.5 + 0.5 * Math.sin(a) }; });
 
 // A surface's outline in its own unit square.
@@ -90,23 +90,27 @@ export class StageView {
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, cw, ch);
     if (this.hideHandles) return;
-    c.strokeStyle = 'rgba(148,163,184,0.24)'; c.lineWidth = 1; c.strokeRect(r.x - 0.5, r.y - 0.5, r.w + 1, r.h + 1);
+    c.strokeStyle = '#333'; c.lineWidth = 1; c.strokeRect(r.x - 0.5, r.y - 0.5, r.w + 1, r.h + 1);
     if (pic.surface) this.drawInput(r, pic.surface); else this.drawOutput(r);
   }
 
-  poly(r, pts, color, width = 1, close = true) {
+  poly(r, pts, color, width = 1, close = true, dash = []) {
     const c = this.ctx;
     if (pts.length < 2) return;
     c.beginPath();
     pts.forEach((p, i) => { const q = this.toScreen(r, p); i ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y); });
     if (close) c.closePath();
-    c.strokeStyle = color; c.lineWidth = width; c.stroke();
+    c.strokeStyle = 'rgba(0,0,0,0.5)'; c.lineWidth = width + 2; c.stroke();      // a dark edge, so white shows on any picture
+    c.setLineDash(dash); c.strokeStyle = color; c.lineWidth = width; c.stroke(); c.setLineDash([]);
   }
   handle(r, p, kind = 'corner', color = ACCENT) {
     const c = this.ctx, q = this.toScreen(r, p);
     c.beginPath();
     if (kind === 'square') c.rect(q.x - 5, q.y - 5, 10, 10); else c.arc(q.x, q.y, kind === 'small' ? 5 : 7, 0, Math.PI * 2);
-    c.fillStyle = 'rgba(11,15,23,0.9)'; c.fill(); c.strokeStyle = color; c.lineWidth = 2; c.stroke();
+    const hollow = color === MASK;                                // surfaces: white handles; masks: black ones
+    c.lineWidth = 4; c.strokeStyle = '#000'; c.stroke();
+    c.fillStyle = hollow ? '#000' : color; c.fill();
+    if (hollow) { c.strokeStyle = color; c.lineWidth = 2; c.stroke(); }
   }
   cross(r, p) {
     const c = this.ctx, q = this.toScreen(r, p);
@@ -124,17 +128,17 @@ export class StageView {
     if (!sel) return;
     if (sel.shape === 'line') {
       this.poly(r, effectiveOut(sel, aspect), ACCENT, 1.5);
-      this.poly(r, [sel.lineA, sel.lineB], 'rgba(38,198,208,0.4)', 1, false);
+      this.poly(r, [sel.lineA, sel.lineB], 'rgba(255,255,255,0.4)', 1, false);
       this.handle(r, sel.lineA); this.handle(r, sel.lineB);
       this.cross(r, { x: (sel.lineA.x + sel.lineB.x) / 2, y: (sel.lineA.y + sel.lineB.y) / 2 });
       return;
     }
     const eo = effectiveOut(sel, aspect);
-    if (eo.some((p, i) => Math.abs(p.x - sel.out[i].x) + Math.abs(p.y - sel.out[i].y) > 1e-5)) this.poly(r, mapAll(eo, outlineUnit(sel)), 'rgba(255,238,130,0.9)');   // where animation puts it
+    if (eo.some((p, i) => Math.abs(p.x - sel.out[i].x) + Math.abs(p.y - sel.out[i].y) > 1e-5)) this.poly(r, mapAll(eo, outlineUnit(sel)), ACCENT, 1.5, true, DASH_ANIM);   // where animation puts it
     this.poly(r, sel.out, ACCENT, 1.5);
     if (sel.shape !== 'quad' && sel.shape !== 'object3d') this.poly(r, mapAll(sel.out, outlineUnit(sel)), ACCENT, 2);
-    this.poly(r, [sel.out[0], sel.out[2]], 'rgba(38,198,208,0.35)', 1, false); this.poly(r, [sel.out[1], sel.out[3]], 'rgba(38,198,208,0.35)', 1, false);
-    sel.masks.forEach((m, i) => this.poly(r, mapAll(sel.out, maskOutline(m)), m.enabled ? MASK : 'rgba(228,95,207,0.35)', i === this.ed.selMask ? 2.5 : 1.5));
+    this.poly(r, [sel.out[0], sel.out[2]], 'rgba(255,255,255,0.3)', 1, false); this.poly(r, [sel.out[1], sel.out[3]], 'rgba(255,255,255,0.3)', 1, false);
+    sel.masks.forEach((m, i) => this.poly(r, mapAll(sel.out, maskOutline(m)), m.enabled ? MASK : 'rgba(255,255,255,0.35)', i === this.ed.selMask ? 2.5 : 1.5, true, DASH_MASK));
     const mk = this.mask(sel);
     if (mk) { mapAll(sel.out, maskHandles(mk)).forEach(p => this.handle(r, p, 'square', MASK)); return; }       // the selected mask is what you edit
     const free = sel.shape === 'freeform';
@@ -145,7 +149,7 @@ export class StageView {
 
   drawInput(r, s) {
     const ei = effectiveIn(s, this.pic.w / Math.max(1, this.pic.h));
-    if (ei.some((p, i) => Math.abs(p.x - s.in[i].x) + Math.abs(p.y - s.in[i].y) > 1e-5)) this.poly(r, mapAll(ei, outlineUnit(s)), 'rgba(255,238,130,0.9)');
+    if (ei.some((p, i) => Math.abs(p.x - s.in[i].x) + Math.abs(p.y - s.in[i].y) > 1e-5)) this.poly(r, mapAll(ei, outlineUnit(s)), ACCENT, 1.5, true, DASH_ANIM);
     this.poly(r, s.in, ACCENT, 1.5);
     if (s.shape !== 'quad' && s.shape !== 'object3d' && s.shape !== 'line') this.poly(r, mapAll(s.in, outlineUnit(s)), ACCENT, 2);
     s.in.forEach(p => this.handle(r, p));
