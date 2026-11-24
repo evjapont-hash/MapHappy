@@ -20,6 +20,8 @@ struct ParamDef {
     ParamFormat format;
     float (*get)(const Surface&);
     void (*set)(Surface&, float);
+    bool (*applies)(const Surface&) = nullptr;   // only some shapes have it (nullptr = every surface)
+    bool appliesTo(const Surface& s) const { return !applies || applies(s); }
 };
 
 #define MH_PARAM(KEY, LABEL, CAT, MIN, MAX, DEF, FMT, MEMBER) \
@@ -52,6 +54,10 @@ inline const std::vector<ParamDef>& paramDefs() {
         MH_PARAM("saturation", "Saturation", "Color", 0.0f, 2.0f, 1.0f, ParamFormat::Percent, saturation),
         MH_PARAM("contrast",   "Contrast",   "Color", 0.0f, 2.0f, 1.0f, ParamFormat::Percent, contrast),
         MH_PARAM("brightness", "Brightness", "Color", -1.0f, 1.0f, 0.0f, ParamFormat::Percent, brightness),
+        // ---- shape-specific
+        ParamDef{"lineWidth", "Line width", "Line", 0.001f, 0.5f, 0.02f, ParamFormat::Percent,
+                 [](const Surface& s) { return s.lineWidth; }, [](Surface& s, float v) { s.lineWidth = v; },
+                 [](const Surface& s) { return s.shape == Shape::Line; }},
     };
     return defs;
 }
@@ -108,8 +114,15 @@ inline bool paramInfo(const Project& p, const std::string& path, ParamInfo& out)
 inline std::vector<ParamInfo> listParams(const Project& p) {
     std::vector<ParamInfo> v;
     for (const Surface& s : p.surfaces)
-        for (const ParamDef& d : paramDefs()) v.push_back(makeInfo(d, s.name, s.id));
+        for (const ParamDef& d : paramDefs()) if (d.appliesTo(s)) v.push_back(makeInfo(d, s.name, s.id));
     return v;
+}
+
+// The categories, in table order ("Appearance", "Transform", ...), for menus.
+inline std::vector<std::string> paramCategories() {
+    std::vector<std::string> c;
+    for (const ParamDef& d : paramDefs()) if (std::find(c.begin(), c.end(), d.category) == c.end()) c.push_back(d.category);
+    return c;
 }
 
 inline bool getParam(Project& p, const std::string& path, float& v) {

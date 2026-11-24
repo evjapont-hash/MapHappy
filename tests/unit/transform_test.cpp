@@ -1,6 +1,7 @@
 // The surface transform math: position, scale and rotation (aspect-correct) and the content transform.
 #include "TestSupport.h"
 #include "Surface.h"
+#include <algorithm>
 
 static float pixelDist(Vec2 a, Vec2 b, float aspect) { return std::hypot((a.x - b.x) * aspect, a.y - b.y); }
 
@@ -70,5 +71,27 @@ int main() {
     // ---- geometry helpers used for hit-testing
     std::vector<Vec2> tri = {{0, 0}, {1, 0}, {0, 1}};
     expect("point-in-polygon: inside, outside and degenerate", pointInPolygon(tri, {0.2f, 0.2f}) && !pointInPolygon(tri, {0.8f, 0.8f}) && !pointInPolygon({}, {0, 0}));
+
+    // ---- shapes
+    { bool all = true; for (int i = 0; i < kShapeCount; i++) all &= shapeFromKey(shapeKey((Shape)i)) == (Shape)i;
+      expect("every shape round-trips through its file name; unknown names are quads", all && shapeFromKey("blob") == Shape::Quad); }
+    { Surface l; l.shape = Shape::Line; l.lineA = {0.2f, 0.5f}; l.lineB = {0.8f, 0.5f}; l.lineWidth = 0.1f; Vec2 q[4];
+      expect("a horizontal line's quad runs end to end, its width split above and below", lineQuad(l, A, q) && nearf(q[0].x, 0.2f, 1e-6) && nearf(q[1].x, 0.8f, 1e-6) && nearf(q[0].y, 0.45f, 1e-6) && nearf(q[3].y, 0.55f, 1e-6) && isConvex(q));
+      l.lineA = {0.5f, 0.2f}; l.lineB = {0.5f, 0.8f}; lineQuad(l, A, q);
+      expect("a vertical line is just as wide, in pixels, as a horizontal one", nearf(std::fabs(q[0].x - q[3].x) * A, 0.1f, 1e-5) && nearf(q[0].y, 0.2f, 1e-6));
+      l.lineA = {0.3f, 0.3f}; l.lineB = {0.6f, 0.7f}; lineQuad(l, A, q);
+      expect("a slanted line's quad is a true rectangle in pixels", nearf(pixelDist(q[0], q[3], A), 0.1f, 1e-5) && nearf(pixelDist(q[1], q[2], A), 0.1f, 1e-5) && nearf(pixelDist(q[0], q[2], A), std::hypot(pixelDist(q[0], q[1], A), 0.1f), 1e-4));
+      l.lineB = l.lineA; expect("a line with both ends together has no quad (instead of a broken one)", !lineQuad(l, A, q));
+      l.lineA = {0.1f, 0.1f}; l.lineB = {0.3f, 0.1f}; l.out[0] = {9, 9}; effectiveOut(l, A, e);
+      expect("a line is drawn where its end points are, whatever its stored quad says", nearf(e[0].x, 0.1f, 1e-6) && nearf(e[1].x, 0.3f, 1e-6));
+      syncLineQuad(l, A); expect("syncLineQuad stores that quad", nearf(l.out[0].x, 0.1f, 1e-6) && nearf(l.out[2].y, 0.15f, 1e-6));
+      Surface notLine; const Vec2 before = notLine.out[0]; syncLineQuad(notLine, A); expect("...and leaves other shapes alone", nearf(notLine.out[0].x, before.x, 0)); }
+    { Surface f; f.shape = Shape::Freeform; f.poly = {{0, 0}, {1, 0}, {1, 1}, {0.5f, 0.5f}, {0, 1}};       // a quad with a notch in the bottom
+      const Vec2 sq[4] = {{0, 0}, {2, 0}, {2, 2}, {0, 2}};
+      const std::vector<Vec2> o = outlineInQuad(f, sq);
+      expect("a freeform outline is its points, warped by the quad", o.size() == 5 && nearf(o[3].x, 1.0f, 1e-5) && nearf(o[2].x, 2.0f, 1e-5));
+      expect("...so clicking in its notch misses it", pointInPolygon(o, {0.3f, 0.3f}) && !pointInPolygon(o, {1.0f, 1.6f}));
+      const std::vector<Vec2> hex = defaultPolygon();
+      expect("the default freeform outline is a hexagon inside the quad", hex.size() == 6 && std::all_of(hex.begin(), hex.end(), [](Vec2 v) { return v.x >= -1e-6f && v.x <= 1.000001f && v.y >= -1e-6f && v.y <= 1.000001f; })); }
     return finishTest();
 }

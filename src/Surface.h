@@ -6,13 +6,18 @@
 #include <vector>
 
 // A surface's shape is a mask inside its quad. The quad is what you warp;
-// the shape (circle, triangle) is cut out of it.
-enum class Shape { Quad = 0, Circle = 1, Triangle = 2 };
+// the shape (circle, triangle, freeform polygon) is cut out of it.
+//   Line     - the quad is built from two end points and a width (lineA, lineB, lineWidth)
+//   Freeform - a polygon of any number of points (poly), in the quad's own 0..1 square
+enum class Shape { Quad = 0, Circle = 1, Triangle = 2, Line = 3, Freeform = 4 };
+constexpr int kShapeCount = 5;
 
 inline const char* shapeName(Shape s) {
     switch (s) {
         case Shape::Circle:   return "Circle";
         case Shape::Triangle: return "Triangle";
+        case Shape::Line:     return "Line";
+        case Shape::Freeform: return "Freeform";
         default:              return "Quad";
     }
 }
@@ -20,8 +25,33 @@ inline const char* shapeTag(Shape s) {
     switch (s) {
         case Shape::Circle:   return "O";
         case Shape::Triangle: return "^";
+        case Shape::Line:     return "/";
+        case Shape::Freeform: return "*";
         default:              return "#";
     }
+}
+inline const char* shapeKey(Shape s) {
+    switch (s) {
+        case Shape::Circle:   return "circle";
+        case Shape::Triangle: return "triangle";
+        case Shape::Line:     return "line";
+        case Shape::Freeform: return "freeform";
+        default:              return "quad";
+    }
+}
+inline Shape shapeFromKey(const std::string& k) {
+    for (int i = 0; i < kShapeCount; i++) if (k == shapeKey((Shape)i)) return (Shape)i;
+    return Shape::Quad;
+}
+
+constexpr int kMaxPolyPoints = 64;
+// Freeform points live inside their quad (0..1). The picture is cut at the quad's edges, so a point outside would
+// show nothing there; to reach further, warp the quad's corners.
+inline Vec2 clampUnit(Vec2 v) { return Vec2{std::max(0.0f, std::min(1.0f, v.x)), std::max(0.0f, std::min(1.0f, v.y))}; }          // a freeform polygon's points (the shader has room for this many)
+inline std::vector<Vec2> defaultPolygon() {  // a hexagon filling the quad
+    std::vector<Vec2> p;
+    for (int i = 0; i < 6; i++) { const float a = 6.2831853f * (i + 0.5f) / 6.0f; p.push_back(Vec2{0.5f + 0.5f * std::cos(a), 0.5f + 0.5f * std::sin(a)}); }
+    return p;
 }
 
 // How a surface combines with what is already on the stage.
@@ -59,7 +89,31 @@ struct Surface {
     float tintR = 1.0f, tintG = 1.0f, tintB = 1.0f;
     float hue = 0.0f;                                         // degrees around the colour wheel
     float saturation = 1.0f, contrast = 1.0f, brightness = 0.0f;
+
+    // ---- Line: its end points on the stage and its width (a fraction of the stage height)
+    Vec2  lineA{0.30f, 0.50f}, lineB{0.70f, 0.50f};
+    float lineWidth = 0.02f;
+    // ---- Freeform: the polygon's points, in the quad's 0..1 square
+    std::vector<Vec2> poly = defaultPolygon();
 };
+
+// A line's quad: the segment from lineA to lineB, lineWidth thick, square in PIXELS (aspect = stage w / h).
+inline bool lineQuad(const Surface& s, float aspect, Vec2 q[4]) {
+    const float dx = (s.lineB.x - s.lineA.x) * aspect, dy = s.lineB.y - s.lineA.y;
+    const float len = std::hypot(dx, dy);
+    if (len < 1e-6f) return false;
+    const float hw = std::max(0.0005f, s.lineWidth) * 0.5f;
+    const float nx = -dy / len * hw / aspect, ny = dx / len * hw;     // the normal, back in stage units
+    q[0] = {s.lineA.x - nx, s.lineA.y - ny}; q[1] = {s.lineB.x - nx, s.lineB.y - ny};
+    q[2] = {s.lineB.x + nx, s.lineB.y + ny}; q[3] = {s.lineA.x + nx, s.lineA.y + ny};
+    return true;
+}
+// Keeps a line's mapped quad in step with its end points (other shapes are left alone).
+inline void syncLineQuad(Surface& s, float aspect) {
+    if (s.shape != Shape::Line) return;
+    Vec2 q[4];
+    if (lineQuad(s, aspect, q)) for (int i = 0; i < 4; i++) s.out[i] = q[i];
+}
 
 // Maps a point through a 3x3 homography, including the perspective divide.
 inline Vec2 mapPoint(const Mat3& M, Vec2 p) {
@@ -71,7 +125,7 @@ inline Vec2 mapPoint(const Mat3& M, Vec2 p) {
 }
 
 // The shape's outline in unit-square coordinates.
-inline std::vector<Vec2> shapeOutlineUnit(Shape s) {
+inline std::vector<Vec2> shapeOutlineUnit(Shape s, const std::vector<Vec2>* poly = nullptr) {
     std::vector<Vec2> pts;
     switch (s) {
         case Shape::Circle:
@@ -83,6 +137,9 @@ inline std::vector<Vec2> shapeOutlineUnit(Shape s) {
         case Shape::Triangle:
             pts = {{0.5f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
             break;
+        case Shape::Freeform:
+            pts = poly ? *poly : defaultPolygon();
+            break;
         default:
             pts = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
     }
@@ -90,11 +147,11 @@ inline std::vector<Vec2> shapeOutlineUnit(Shape s) {
 }
 
 // The shape's outline after being warped into the given quad.
-inline std::vector<Vec2> outlineInQuad(Shape s, const Vec2 quad[4]) {
+inline std::vector<Vec2> outlineInQuad(const Surface& s, const Vec2 quad[4]) {
     std::vector<Vec2> pts;
     Mat3 H;
     if (!squareToQuad(quad, H)) return pts;
-    for (Vec2 u : shapeOutlineUnit(s)) pts.push_back(mapPoint(H, u));
+    for (Vec2 u : shapeOutlineUnit(s.shape, &s.poly)) pts.push_back(mapPoint(H, u));
     return pts;
 }
 
@@ -136,10 +193,12 @@ inline Vec2 rotateAspect(Vec2 v, float degrees, float aspect) {
 
 // aspect = stage width / stage height
 inline void effectiveOut(const Surface& s, float aspect, Vec2 out[4]) {
-    const Vec2 c = quadCenter(s.out);
+    Vec2 base[4] = {s.out[0], s.out[1], s.out[2], s.out[3]};
+    if (s.shape == Shape::Line) lineQuad(s, aspect, base);           // a line's quad always follows its end points and width
+    const Vec2 c = quadCenter(base);
     const float sx = s.scale * s.scaleX, sy = s.scale * s.scaleY;
     for (int i = 0; i < 4; i++) {
-        Vec2 v{(s.out[i].x - c.x) * sx, (s.out[i].y - c.y) * sy};      // scale first, in the quad's own directions...
+        Vec2 v{(base[i].x - c.x) * sx, (base[i].y - c.y) * sy};      // scale first, in the quad's own directions...
         v = rotateAspect(v, s.rotation, aspect);                      // ...then spin...
         out[i] = Vec2{c.x + v.x + s.posX, c.y + v.y + s.posY};        // ...then move
     }

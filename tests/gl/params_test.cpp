@@ -1,12 +1,15 @@
 // The animatable-parameter table: every parameter's key, range, default and formatting, and the timeline driving them.
 #include "GlTestSupport.h"
 #include "Params.h"
+#include <algorithm>
 #include <set>
 
 int main() {
     GlContext gl; if (!gl.ok) return skipTest("no OpenGL 3.3 context available");
     const auto& defs = paramDefs();
-    expect("there are 20 animatable parameters (3 appearance, 6 transform, 4 content, 7 colour)", defs.size() == 20);
+    const size_t general = (size_t)std::count_if(defs.begin(), defs.end(), [](const ParamDef& d) { return d.applies == nullptr; });
+    expect("there are 20 animatable parameters every surface has (3 appearance, 6 transform, 4 content, 7 colour)", general == 20);
+    expect("...plus shape-specific ones (a line's width) at the end of the table", defs.size() == 21 && std::string(defs.back().key) == "lineWidth");
     std::set<std::string> keys; bool unique = true, ranges = true, defaultsOk = true, labels = true;
     const Surface fresh;
     for (const ParamDef& d : defs) {
@@ -52,7 +55,7 @@ int main() {
 
     p.addSurface(Shape::Circle);
     auto all = listParams(p);
-    expect("listing covers every parameter of every surface, front-most surface first", all.size() == 2 * defs.size() && all.front().group == p.surfaces.front().name);
+    expect("listing covers every parameter of every surface, front-most surface first", all.size() == 2 * general && all.front().group == p.surfaces.front().name);
     std::set<std::string> cats; for (auto& i : all) cats.insert(i.category);
     expect("there are four categories", cats == std::set<std::string>{"Appearance", "Transform", "Content", "Color"});
 

@@ -19,8 +19,9 @@ artwork from any commercial product and is not affiliated with one.
 ## Features
 
 **Mapping**
-- Any number of surfaces: quads, circles and triangles, each with an *input* region (what part of the
-  media it shows) and an *output* quad (where it lands on the stage).
+- Any number of surfaces: quads, circles, triangles, **lines** (two ends and a width) and **freeform**
+  polygons (drag points; double-click an edge to add one, right-click a point to delete it), each with an
+  *input* region (what part of the media it shows) and an *output* quad (where it lands on the stage).
 - Perspective-correct corner-pin warping (a homography solved per surface and evaluated per pixel on
   the GPU, so grids stay straight, unlike splitting a quad into two triangles).
 - Anti-aliased edges, soft feathering, flips, opacity and **blend modes** (Over, Add, Multiply, Screen).
@@ -76,6 +77,7 @@ artwork from any commercial product and is not affiliated with one.
 | F11 | Show / hide the projector output |
 | Ctrl+N / O / S, Ctrl+Shift+S | New / Open / Save / Save As |
 | Delete | Delete the selected keyframe or clip |
+| Double-click a freeform edge / right-click a point | Add / delete a freeform point |
 | Ctrl + wheel, Shift + wheel | Zoom / scroll the timeline |
 | Esc (in the output window) | Close the output window |
 

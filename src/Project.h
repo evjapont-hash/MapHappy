@@ -52,6 +52,29 @@ struct Project {
     }
     Surface* selected() { return find(selectedSurfaceId); }
 
+    // Is the surface drawn? (Its own Visible switch.)
+    bool isShown(const Surface& s) const { return s.visible; }
+
+    // Changes a surface's shape, giving the new shape sensible starting points from the current quad.
+    void setShape(Surface& s, Shape shape) {
+        if (s.shape == shape) return;
+        if (shape == Shape::Line) {                            // along the quad's middle, from its left edge to its right edge
+            s.lineA = Vec2{(s.out[0].x + s.out[3].x) * 0.5f, (s.out[0].y + s.out[3].y) * 0.5f};
+            s.lineB = Vec2{(s.out[1].x + s.out[2].x) * 0.5f, (s.out[1].y + s.out[2].y) * 0.5f};
+        }
+        if (s.shape == Shape::Line) {                          // back to a box around where the line was
+            Vec2 c{(s.lineA.x + s.lineB.x) * 0.5f, (s.lineA.y + s.lineB.y) * 0.5f};
+            const float h = 0.25f, w = 0.25f / stageAspect();
+            s.out[0] = {c.x - w, c.y - h}; s.out[1] = {c.x + w, c.y - h}; s.out[2] = {c.x + w, c.y + h}; s.out[3] = {c.x - w, c.y + h};
+        }
+        if (shape == Shape::Freeform && s.poly.size() < 3) s.poly = defaultPolygon();
+        s.shape = shape;
+        syncLineQuad(s, stageAspect());
+        resetInput(s);
+    }
+    // Lines keep their quad matched to their end points and the stage's shape (call once a frame).
+    void syncLines() { for (Surface& s : surfaces) syncLineQuad(s, stageAspect()); }
+
     int indexOf(int id) const {
         for (size_t i = 0; i < surfaces.size(); i++) if (surfaces[i].id == id) return (int)i;
         return -1;
@@ -67,16 +90,20 @@ struct Project {
         // Stagger new surfaces so they don't land exactly on top of each other.
         float shift = 0.04f * (float)(surfaces.size() % 5) - 0.08f;
         for (int i = 0; i < 4; i++) { s.out[i].x += shift; s.out[i].y += shift; }
+        s.lineA.x += shift; s.lineA.y += shift; s.lineB.x += shift; s.lineB.y += shift;
+        syncLineQuad(s, stageAspect());
         surfaces.insert(surfaces.begin(), s);
         selectedSurfaceId = s.id;
         return surfaces.front();
     }
+    float stageAspect() const { return (float)outW / (float)std::max(1, outH); }
 
-    // Default input region: the whole media for a quad, or a centered square for circles and
-    // triangles, so a circle samples a round area instead of a stretched oval.
+    // Default input region: the whole media for a quad, a thin strip across the middle for a line, or a
+    // centered square for the other shapes, so a circle samples a round area instead of a stretched oval.
     void resetInput(Surface& s) const {
         float hx = 0.5f, hy = 0.5f;
-        if (s.shape != Shape::Quad) {
+        if (s.shape == Shape::Line) hy = 0.05f;
+        else if (s.shape != Shape::Quad) {
             const MediaItem* m = media.find(s.mediaId);
             float a = m ? m->aspect() : 16.0f / 9.0f;
             if (a >= 1.0f) hx = 0.5f / a; else hy = 0.5f * a;
@@ -85,11 +112,11 @@ struct Project {
         s.in[2] = {0.5f + hx, 0.5f + hy}; s.in[3] = {0.5f - hx, 0.5f + hy};
     }
 
-    struct Counters { int surface = 1, asset = 1, shape[3] = {0, 0, 0}; };
-    Counters counters() const { Counters c; c.surface = nextSurfaceId_; c.asset = nextAssetId_; for (int i = 0; i < 3; i++) c.shape[i] = shapeCounter_[i]; return c; }
+    struct Counters { int surface = 1, asset = 1, shape[kShapeCount] = {}; };
+    Counters counters() const { Counters c; c.surface = nextSurfaceId_; c.asset = nextAssetId_; for (int i = 0; i < kShapeCount; i++) c.shape[i] = shapeCounter_[i]; return c; }
     void setCounters(const Counters& c) {
         nextSurfaceId_ = std::max(nextSurfaceId_, c.surface); nextAssetId_ = std::max(nextAssetId_, c.asset);
-        for (int i = 0; i < 3; i++) shapeCounter_[i] = std::max(shapeCounter_[i], c.shape[i]);
+        for (int i = 0; i < kShapeCount; i++) shapeCounter_[i] = std::max(shapeCounter_[i], c.shape[i]);
     }
 
     // Back to a blank project (keeps the built-in test pattern). Frees GPU textures, so call it between frames.
@@ -129,5 +156,5 @@ struct Project {
 
 private:
     int nextSurfaceId_ = 1, nextAssetId_ = 1;
-    int shapeCounter_[3] = {0, 0, 0};
+    int shapeCounter_[kShapeCount] = {};
 };

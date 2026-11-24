@@ -142,13 +142,14 @@ private:
         record("button:+ Track");
         if (ImGui::BeginPopup("##addtrack")) {
             // Surface > category > parameter. Parameters that already have a track are shown ticked and greyed out.
-            static const char* kCategories[] = {"Appearance", "Transform", "Content", "Color"};
             for (const Surface& sf : proj_.surfaces) {
                 if (!ImGui::BeginMenu((sf.name + "##surf" + std::to_string(sf.id)).c_str())) continue;
-                for (const char* cat : kCategories) {
-                    if (!ImGui::BeginMenu(cat)) continue;
+                for (const std::string& cat : paramCategories()) {
+                    bool any = false;
+                    for (const ParamDef& d : paramDefs()) any |= d.category == cat && d.appliesTo(sf);
+                    if (!any || !ImGui::BeginMenu(cat.c_str())) continue;
                     for (const ParamDef& d : paramDefs()) {
-                        if (std::string(d.category) != cat) continue;
+                        if (d.category != cat || !d.appliesTo(sf)) continue;
                         const std::string path = surfaceParamPath(sf.id, d.key);
                         const bool used = proj_.timeline.findTrackByPath(path) != nullptr;
                         if (ImGui::MenuItem(d.label, nullptr, used, !used)) proj_.timeline.addTrack(path);

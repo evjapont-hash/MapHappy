@@ -105,6 +105,7 @@ public:
 
     void drawUI() {
         rects_.clear();
+        proj_.syncLines();
         pollAudio();
         tickProjectState();
         const float menuH = drawMenuBar();
@@ -194,56 +195,124 @@ private:
         return clicked;
     }
 
-    // Outline, diagonals and handles for one quad (and its shape mask).
-    void drawQuadOverlay(const View& v, Shape shape, const Vec2 q[4], bool selected) {
+    // Outline, diagonals and handles for one surface's quad (and its shape). `isStage` = the quad is the output one.
+    void drawSurfaceOverlay(const View& v, const Surface& s, const Vec2 q[4], bool selected, bool isStage) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImU32 col = selected ? kAccent : IM_COL32(210, 210, 215, 110);
         ImVec2 p[4];
         for (int i = 0; i < 4; i++) p[i] = v.toScreen(q[i]);
         dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, selected ? 1.5f : 1.0f);
 
-        if (shape != Shape::Quad) {
+        if (s.shape != Shape::Quad && s.shape != Shape::Line) {
             std::vector<ImVec2> pts;
-            for (Vec2 o : outlineInQuad(shape, q)) pts.push_back(v.toScreen(o));
+            for (Vec2 o : outlineInQuad(s, q)) pts.push_back(v.toScreen(o));
             if (pts.size() > 2) dl->AddPolyline(pts.data(), (int)pts.size(), col, ImDrawFlags_Closed, 2.0f);
         }
         if (!selected) return;
 
+        auto moveHandle = [&](ImVec2 c) {
+            dl->AddCircle(c, 6.0f, kAccent, 0, 1.5f);
+            dl->AddLine(ImVec2(c.x - 9, c.y), ImVec2(c.x + 9, c.y), kAccent, 1.5f);
+            dl->AddLine(ImVec2(c.x, c.y - 9), ImVec2(c.x, c.y + 9), kAccent, 1.5f);
+        };
+        auto cornerHandle = [&](ImVec2 c, float r, ImU32 ring) {
+            dl->AddCircleFilled(c, r, IM_COL32(20, 20, 24, 200));
+            dl->AddCircle(c, r, ring, 0, 2.0f);
+        };
+        if (isStage && s.shape == Shape::Line) {                     // a line: its two ends, and a move handle in the middle
+            const ImVec2 a = v.toScreen(s.lineA), b = v.toScreen(s.lineB);
+            dl->AddLine(a, b, kAccentDim, 1.0f);
+            cornerHandle(a, 8.0f, kAccent); cornerHandle(b, 8.0f, kAccent);
+            moveHandle(ImVec2((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f));
+            return;
+        }
+        const bool freeform = isStage && s.shape == Shape::Freeform;
         dl->AddLine(p[0], p[2], kAccentDim, 1.0f);
         dl->AddLine(p[1], p[3], kAccentDim, 1.0f);
-        for (int i = 0; i < 4; i++) {
-            dl->AddCircleFilled(p[i], 8.0f, IM_COL32(20, 20, 24, 200));
-            dl->AddCircle(p[i], 8.0f, kAccent, 0, 2.0f);
+        for (int i = 0; i < 4; i++) cornerHandle(p[i], freeform ? 6.0f : 8.0f, freeform ? kAccentDim : kAccent);   // a freeform's corners warp all its points
+        if (freeform) {
+            Mat3 H;
+            if (squareToQuad(q, H))
+                for (Vec2 u : s.poly) {
+                    const ImVec2 c = v.toScreen(mapPoint(H, u));
+                    dl->AddRectFilled(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), kAccent);
+                    dl->AddRect(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), IM_COL32(20, 20, 24, 255));
+                }
         }
-        ImVec2 c = v.toScreen(quadCenter(q));        // the "move" handle
-        dl->AddCircle(c, 6.0f, kAccent, 0, 1.5f);
-        dl->AddLine(ImVec2(c.x - 9, c.y), ImVec2(c.x + 9, c.y), kAccent, 1.5f);
-        dl->AddLine(ImVec2(c.x, c.y - 9), ImVec2(c.x, c.y + 9), kAccent, 1.5f);
+        moveHandle(v.toScreen(quadCenter(q)));
     }
 
     // A thin light-yellow outline of where a transformed surface really is, drawn alongside its mapped quad.
-    void drawEffectiveOutline(const View& v, Shape shape, const Vec2 q[4]) {
+    void drawEffectiveOutline(const View& v, const Surface& s, const Vec2 q[4]) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImU32 col = IM_COL32(255, 238, 130, 240);        // readable against both black and orange pictures
         ImVec2 p[4];
         for (int i = 0; i < 4; i++) p[i] = v.toScreen(q[i]);
         dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 1.0f);
-        if (shape != Shape::Quad) {
+        if (s.shape != Shape::Quad && s.shape != Shape::Line) {
             std::vector<ImVec2> pts;
-            for (Vec2 o : outlineInQuad(shape, q)) pts.push_back(v.toScreen(o));
+            for (Vec2 o : outlineInQuad(s, q)) pts.push_back(v.toScreen(o));
             if (pts.size() > 2) dl->AddPolyline(pts.data(), (int)pts.size(), col, ImDrawFlags_Closed, 1.5f);
         }
     }
 
     enum Panel { PanelInput = 0, PanelStage = 1 };
+    // Drag handles: 0..3 corners, 4 move everything, 10 / 11 a line's ends, 100 + i freeform point i.
+    static constexpr int kHandleMove = 4, kHandleLineA = 10, kHandleLineB = 11, kHandlePoint = 100;
     struct Drag { int handle = -1; Panel panel = PanelInput; int surfaceId = 0; Vec2 prev{0, 0}; };
 
+    // Freeform points on the stage (through the MAPPED quad), and a stage position back to the quad's unit square.
+    static bool polyToStage(const Surface& s, std::vector<Vec2>& out) {
+        Mat3 H; out.clear();
+        if (!squareToQuad(s.out, H)) return false;
+        for (Vec2 u : s.poly) out.push_back(mapPoint(H, u));
+        return true;
+    }
+    static bool stageToUnit(const Surface& s, Vec2 stage, Vec2& unit) {
+        Mat3 H, inv;
+        if (!squareToQuad(s.out, H) || !invert(H, inv)) return false;
+        unit = mapPoint(inv, stage);
+        if (!std::isfinite(unit.x) || !std::isfinite(unit.y)) return false;
+        unit = clampUnit(unit);                                       // points stay inside the quad: the picture ends at its edges
+        return true;
+    }
+
+    // Freeform editing on the stage: double-click an edge to add a point there, right-click a point to delete it.
+    void editFreeformPoints(const View& v) {
+        Surface* s = proj_.selected();
+        if (!s || s->shape != Shape::Freeform || !ImGui::IsItemHovered()) return;
+        ImGuiIO& io = ImGui::GetIO();
+        std::vector<Vec2> pts;
+        if (!polyToStage(*s, pts)) return;
+        auto screenDist = [&](Vec2 a) { const ImVec2 p = v.toScreen(a); return std::hypot(p.x - io.MousePos.x, p.y - io.MousePos.y); };
+        if (ImGui::IsMouseClicked(1)) {
+            int best = -1; float bd = 10.0f;
+            for (int i = 0; i < (int)pts.size(); i++) { const float d = screenDist(pts[i]); if (d < bd) { bd = d; best = i; } }
+            if (best >= 0 && s->poly.size() > 3) s->poly.erase(s->poly.begin() + best);
+        }
+        if (ImGui::IsMouseDoubleClicked(0) && (int)s->poly.size() < kMaxPolyPoints) {
+            int best = -1; float bd = 10.0f; Vec2 at{0, 0};
+            for (int i = 0; i < (int)pts.size(); i++) {            // the edge from point i to point i+1
+                const ImVec2 a = v.toScreen(pts[i]), b = v.toScreen(pts[(i + 1) % pts.size()]);
+                const float ex = b.x - a.x, ey = b.y - a.y, len2 = std::max(1e-6f, ex * ex + ey * ey);
+                const float t = std::max(0.0f, std::min(1.0f, ((io.MousePos.x - a.x) * ex + (io.MousePos.y - a.y) * ey) / len2));
+                const float d = std::hypot(a.x + ex * t - io.MousePos.x, a.y + ey * t - io.MousePos.y);
+                if (d < bd) { bd = d; best = i; at = v.toNorm(ImVec2(a.x + ex * t, a.y + ey * t)); }
+            }
+            Vec2 unit;
+            if (best >= 0 && stageToUnit(*s, at, unit)) {
+                s->poly.insert(s->poly.begin() + best + 1, unit);
+                drag_.handle = kHandlePoint + best + 1; drag_.panel = PanelStage; drag_.surfaceId = s->id; drag_.prev = at;
+            }
+        }
+    }
+
     // Mouse handling for a view. Must be called right after the InvisibleButton covering it.
-    // handles 0..3 = corners, 4 = move the whole quad.
     void interact(Panel panel, const View& v) {
         ImGuiIO& io = ImGui::GetIO();
         const bool isStage = panel == PanelStage;
         const Vec2 mouse = v.toNorm(io.MousePos);
+        auto screenDist = [&](Vec2 a) { const ImVec2 p = v.toScreen(a); return std::hypot(p.x - io.MousePos.x, p.y - io.MousePos.y); };
 
         if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
             drag_.handle = -1;
@@ -251,39 +320,56 @@ private:
             if (Surface* s = proj_.selected()) {
                 const Vec2* q = isStage ? s->out : s->in;
                 float best = 14.0f;
-                for (int i = 0; i < 4; i++) {
-                    ImVec2 sp = v.toScreen(q[i]);
-                    float d = std::hypot(sp.x - io.MousePos.x, sp.y - io.MousePos.y);
-                    if (d < best) { best = d; handle = i; }
+                if (isStage && s->shape == Shape::Line) {
+                    if (screenDist(s->lineA) < best) { best = screenDist(s->lineA); handle = kHandleLineA; }
+                    if (screenDist(s->lineB) < best) { best = screenDist(s->lineB); handle = kHandleLineB; }
+                } else {
+                    std::vector<Vec2> pts;
+                    if (isStage && s->shape == Shape::Freeform && polyToStage(*s, pts)) {   // points before corners: they are what you edit most
+                        float bp = 10.0f;
+                        for (int i = 0; i < (int)pts.size(); i++) if (screenDist(pts[i]) < bp) { bp = screenDist(pts[i]); handle = kHandlePoint + i; }
+                    }
+                    if (handle < 0) for (int i = 0; i < 4; i++) if (screenDist(q[i]) < best) { best = screenDist(q[i]); handle = i; }
                 }
-                if (handle < 0 && pointInPolygon(outlineInQuad(s->shape, q), mouse)) handle = 4;
-                if (handle < 0 && isStage) { Vec2 eo[4]; effectiveOut(*s, (float)proj_.outW / (float)std::max(1, proj_.outH), eo); if (pointInPolygon(outlineInQuad(s->shape, eo), mouse)) handle = 4; }
+                if (handle < 0 && pointInPolygon(outlineInQuad(*s, q), mouse)) handle = kHandleMove;
+                if (handle < 0 && isStage) { Vec2 eo[4]; effectiveOut(*s, proj_.stageAspect(), eo); if (pointInPolygon(outlineInQuad(*s, eo), mouse)) handle = kHandleMove; }
                 if (handle >= 0) surfaceId = s->id;
             }
             if (handle < 0 && isStage) {          // clicked empty space or another surface: select the top one under the mouse
                 for (const Surface& o : proj_.surfaces) {
-                    Vec2 eo[4]; effectiveOut(o, (float)proj_.outW / (float)std::max(1, proj_.outH), eo);      // click what you can SEE
-                    if (o.visible && pointInPolygon(outlineInQuad(o.shape, eo), mouse)) {
+                    Vec2 eo[4]; effectiveOut(o, proj_.stageAspect(), eo);      // click what you can SEE
+                    if (proj_.isShown(o) && pointInPolygon(outlineInQuad(o, eo), mouse)) {
                         proj_.selectedSurfaceId = o.id;
-                        handle = 4; surfaceId = o.id;
+                        handle = kHandleMove; surfaceId = o.id;
                         break;
                     }
                 }
             }
             if (handle >= 0) { drag_.handle = handle; drag_.panel = panel; drag_.surfaceId = surfaceId; drag_.prev = mouse; }
         }
+        if (isStage) editFreeformPoints(v);
 
         if (drag_.handle >= 0 && drag_.panel == panel) {
             Surface* s = proj_.find(drag_.surfaceId);
             if (!s || !ImGui::IsMouseDown(0)) { drag_.handle = -1; return; }
             Vec2* q = isStage ? s->out : s->in;
-            if (drag_.handle < 4) {
+            if (drag_.handle == kHandleLineA || drag_.handle == kHandleLineB) {
+                Vec2& end = drag_.handle == kHandleLineA ? s->lineA : s->lineB;
+                const Vec2 other = drag_.handle == kHandleLineA ? s->lineB : s->lineA;
+                if (screenDist(other) > 4.0f) end = mouse;                  // the two ends can't meet (a line needs a direction)
+                syncLineQuad(*s, proj_.stageAspect());
+            } else if (drag_.handle >= kHandlePoint) {
+                const int i = drag_.handle - kHandlePoint;
+                Vec2 unit;
+                if (i < (int)s->poly.size() && stageToUnit(*s, mouse, unit)) s->poly[i] = unit;
+            } else if (drag_.handle < 4) {
                 Vec2 old = q[drag_.handle];
                 q[drag_.handle] = mouse;
                 if (!isConvex(q)) q[drag_.handle] = old;      // a bow-tie or dented quad has no valid projection
             } else {
                 float dx = mouse.x - drag_.prev.x, dy = mouse.y - drag_.prev.y;
                 for (int i = 0; i < 4; i++) { q[i].x += dx; q[i].y += dy; }
+                if (isStage && s->shape == Shape::Line) { s->lineA.x += dx; s->lineA.y += dy; s->lineB.x += dx; s->lineB.y += dy; syncLineQuad(*s, proj_.stageAspect()); }
             }
             drag_.prev = mouse;
         }
@@ -341,6 +427,12 @@ private:
         if (ImGui::Button("+ Circle"))   proj_.addSurface(Shape::Circle, defaultMedia());
         ImGui::SameLine();
         if (ImGui::Button("+ Triangle")) proj_.addSurface(Shape::Triangle, defaultMedia());
+        if (ImGui::Button("+ Line"))     proj_.addSurface(Shape::Line, defaultMedia());
+        recordRect("button:+ Line");
+        ImGui::SameLine();
+        if (ImGui::Button("+ Freeform")) proj_.addSurface(Shape::Freeform, defaultMedia());
+        recordRect("button:+ Freeform");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A polygon: drag its points on the stage, double-click an edge to add one, right-click a point to delete it");
 
         const bool has = proj_.selected() != nullptr;
         ImGui::BeginDisabled(!has);
@@ -426,9 +518,24 @@ private:
         std::snprintf(buf, sizeof(buf), "%s", s.name.c_str());
         if (ImGui::InputText("Name", buf, sizeof(buf))) s.name = buf;
 
-        int shape = (int)s.shape;
-        const char* shapes[] = {"Quad", "Circle", "Triangle"};
-        if (ImGui::Combo("Shape", &shape, shapes, 3)) { s.shape = (Shape)shape; proj_.resetInput(s); }
+        if (ImGui::BeginCombo("Shape", shapeName(s.shape))) {
+            for (int i = 0; i < kShapeCount; i++) if (ImGui::Selectable(shapeName((Shape)i), (int)s.shape == i)) proj_.setShape(s, (Shape)i);
+            ImGui::EndCombo();
+        }
+        if (s.shape == Shape::Line) {
+            paramSlider(s, "lineWidth");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]); ImGui::TextWrapped("Drag the line's two ends on the stage"); ImGui::PopStyleColor();
+        }
+        if (s.shape == Shape::Freeform) {
+            ImGui::TextDisabled("%d points", (int)s.poly.size());
+            ImGui::SameLine();
+            const bool resetPts = ImGui::Button("Reset outline");
+            recordRect("button:Reset outline");
+            if (resetPts) s.poly = defaultPolygon();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            ImGui::TextWrapped("Drag points on the stage. Double-click an edge to add a point, right-click a point to delete it. The round corners warp the whole outline.");
+            ImGui::PopStyleColor();
+        }
 
         if (ImGui::CollapsingHeader("Media", ImGuiTreeNodeFlags_DefaultOpen)) {
             MediaItem* cur = proj_.media.find(s.mediaId);
@@ -1024,8 +1131,8 @@ private:
                 dl->AddRectFilled(v.min, mx, IM_COL32(0, 0, 0, 255));
                 dl->AddImage(texId(m->source->texture()), v.min, mx, ImVec2(0, 1), ImVec2(1, 0));
                 dl->AddRect(v.min, mx, IM_COL32(90, 90, 95, 255));
-                drawQuadOverlay(v, s->shape, s->in, true);
-                if (!inTransformIsIdentity(*s)) { Vec2 ei[4]; effectiveIn(*s, m->aspect(), ei); drawEffectiveOutline(v, s->shape, ei); }
+                drawSurfaceOverlay(v, *s, s->in, true, false);
+                if (!inTransformIsIdentity(*s)) { Vec2 ei[4]; effectiveIn(*s, m->aspect(), ei); drawEffectiveOutline(v, *s, ei); }
                 ImGui::InvisibleButton("##input", ImGui::GetContentRegionAvail());
                 interact(PanelInput, v);
             }
@@ -1058,10 +1165,10 @@ private:
             dl->AddRect(v.min, mx, IM_COL32(90, 90, 95, 255));
             const float stageAspect = (float)proj_.outW / (float)std::max(1, proj_.outH);
             for (Surface& s : proj_.surfaces)
-                if (s.visible && s.id != proj_.selectedSurfaceId) { Vec2 eo[4]; effectiveOut(s, stageAspect, eo); drawQuadOverlay(v, s.shape, eo, false); }
+                if (proj_.isShown(s) && s.id != proj_.selectedSurfaceId) { Vec2 eo[4]; effectiveOut(s, stageAspect, eo); drawSurfaceOverlay(v, s, eo, false, true); }
             if (Surface* sel = proj_.selected()) {
-                drawQuadOverlay(v, sel->shape, sel->out, true);                       // the mapped quad, with its handles
-                if (!outTransformIsIdentity(*sel)) { Vec2 eo[4]; effectiveOut(*sel, stageAspect, eo); drawEffectiveOutline(v, sel->shape, eo); }
+                drawSurfaceOverlay(v, *sel, sel->out, true, true);                    // the mapped quad, with its handles
+                if (!outTransformIsIdentity(*sel)) { Vec2 eo[4]; effectiveOut(*sel, stageAspect, eo); drawEffectiveOutline(v, *sel, eo); }
             }
             ImGui::InvisibleButton("##stage", ImGui::GetContentRegionAvail());
             interact(PanelStage, v);

@@ -16,6 +16,13 @@ const int kFormatVersion = 1;
 json jv(Vec2 v) { return json::array({v.x, v.y}); }
 json jquad(const Vec2 q[4]) { json a = json::array(); for (int i = 0; i < 4; i++) a.push_back(jv(q[i])); return a; }
 
+// A point [x, y] with finite coordinates within a generous range (points may sit a little off the stage).
+bool readPoint(const json& p, Vec2& v) {
+    if (!p.is_array() || p.size() != 2 || !p[0].is_number() || !p[1].is_number()) return false;
+    v = Vec2{p[0].get<float>(), p[1].get<float>()};
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::fabs(v.x) < 100.0f && std::fabs(v.y) < 100.0f;
+}
+
 bool readQuad(const json& j, Vec2 q[4]) {
     if (!j.is_array() || j.size() != 4) return false;
     for (int i = 0; i < 4; i++) {
@@ -26,8 +33,6 @@ bool readQuad(const json& j, Vec2 q[4]) {
     return true;
 }
 
-const char* shapeKey(Shape s) { return s == Shape::Circle ? "circle" : s == Shape::Triangle ? "triangle" : "quad"; }
-Shape shapeFrom(const std::string& s) { return s == "circle" ? Shape::Circle : s == "triangle" ? Shape::Triangle : Shape::Quad; }
 const char* interpKey(Interp i) { return i == Interp::Linear ? "linear" : i == Interp::Hold ? "hold" : "smooth"; }
 Interp interpFrom(const std::string& s) { return s == "linear" ? Interp::Linear : s == "hold" ? Interp::Hold : Interp::Smooth; }
 
@@ -92,6 +97,8 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
             else                                o[d.key] = d.get(s);
         }
         o["in"] = jquad(s.in); o["out"] = jquad(s.out);
+        if (s.shape == Shape::Line) { o["lineA"] = jv(s.lineA); o["lineB"] = jv(s.lineB); }
+        if (s.shape == Shape::Freeform) { json pts = json::array(); for (Vec2 v : s.poly) pts.push_back(jv(v)); o["points"] = pts; }
         surfaces.push_back(o);
     }
     j["surfaces"] = surfaces;
@@ -149,7 +156,8 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
 
     j["transport"] = {{"avOffset", p.transport.avOffset}, {"loop", p.transport.loop}};
     Project::Counters c = p.counters();
-    j["counters"] = {{"surface", c.surface}, {"asset", c.asset}, {"shape", json::array({c.shape[0], c.shape[1], c.shape[2]})}};
+    j["counters"] = {{"surface", c.surface}, {"asset", c.asset}, {"shape", json::array()}};
+    for (int i = 0; i < kShapeCount; i++) j["counters"]["shape"].push_back(c.shape[i]);
     return j.dump(2);
 }
 
@@ -232,7 +240,7 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
             if (s.id <= 0 || surfaceIds.count(s.id)) { warn("Skipped a surface with a bad or repeated id"); continue; }
             surfaceIds.insert(s.id);
             s.name = get<std::string>(o, "name", "Surface-" + std::to_string(s.id));
-            s.shape = shapeFrom(get<std::string>(o, "shape", "quad"));
+            s.shape = shapeFromKey(get<std::string>(o, "shape", "quad"));
             s.flipH = get<bool>(o, "flipH", false); s.flipV = get<bool>(o, "flipV", false);
             s.blend = blendFromKey(get<std::string>(o, "blend", "over"));
             for (const ParamDef& d : paramDefs()) {                 // files from older versions lack the newer keys: they get the defaults
@@ -252,6 +260,18 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
             else { warn("\"" + s.name + "\" had an unusable input shape; it was reset"); for (int i = 0; i < 4; i++) s.in[i] = def.in[i]; }
             if (o.contains("out") && readQuad(o["out"], q) && isConvex(q) && squareToQuad(q, h)) for (int i = 0; i < 4; i++) s.out[i] = q[i];
             else { warn("\"" + s.name + "\" had an unusable output shape; it was reset"); for (int i = 0; i < 4; i++) s.out[i] = def.out[i]; }
+            if (s.shape == Shape::Line) {
+                Vec2 a, b;
+                if (readPoint(o.value("lineA", json()), a) && readPoint(o.value("lineB", json()), b) && std::hypot(a.x - b.x, a.y - b.y) > 1e-5f) { s.lineA = a; s.lineB = b; }
+                else warn("\"" + s.name + "\" had unusable line end points; they were reset");
+            }
+            if (s.shape == Shape::Freeform) {
+                std::vector<Vec2> pts;
+                bool ok = o.contains("points") && o["points"].is_array();
+                if (ok) for (const json& pj : o["points"]) { Vec2 v; if (!readPoint(pj, v)) { ok = false; break; } pts.push_back(clampUnit(v)); }
+                if (ok && pts.size() >= 3 && pts.size() <= (size_t)kMaxPolyPoints) s.poly = pts;
+                else warn("\"" + s.name + "\" had an unusable freeform outline; it was reset");
+            }
             surfaces.push_back(s);
         }
     }
@@ -401,6 +421,7 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
         if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; }
     }
     p.surfaces = surfaces;
+    for (Surface& s : p.surfaces) syncLineQuad(s, (float)p.outW / (float)p.outH);
     p.selectedSurfaceId = surfaceIds.count(get<int>(j, "selectedSurface", 0)) ? get<int>(j, "selectedSurface", 0) : (surfaces.empty() ? 0 : surfaces.front().id);
 
     for (size_t i = 0; i < assets.size(); i++) {
@@ -423,8 +444,8 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
     if (j.contains("counters") && j["counters"].is_object()) {
         const json& jc = j["counters"];
         c.surface = get<int>(jc, "surface", 1); c.asset = get<int>(jc, "asset", 1);
-        if (jc.contains("shape") && jc["shape"].is_array() && jc["shape"].size() == 3)
-            for (int i = 0; i < 3; i++) if (jc["shape"][i].is_number_integer()) c.shape[i] = jc["shape"][i].get<int>();
+        if (jc.contains("shape") && jc["shape"].is_array())                 // older files have fewer shapes
+            for (int i = 0; i < kShapeCount && i < (int)jc["shape"].size(); i++) if (jc["shape"][i].is_number_integer()) c.shape[i] = jc["shape"][i].get<int>();
     }
     c.surface = std::max(c.surface, maxSurface + 1); c.asset = std::max(c.asset, maxAsset + 1);
     p.setCounters(c);

@@ -13,7 +13,9 @@ uniform sampler2D uTex;
 uniform mat3  uInvOut;    // stage (normalized) -> surface unit square
 uniform mat3  uIn;        // surface unit square -> media (normalized)
 uniform vec2  uRes;       // render target size in pixels
-uniform int   uShape;     // 0 quad, 1 circle, 2 triangle
+uniform int   uShape;     // 0 quad (and line), 1 circle, 2 triangle, 4 freeform polygon
+uniform vec2  uPoly[64];  // freeform: the polygon, in the unit square
+uniform int   uPolyN;
 uniform float uOpacity;
 uniform vec2  uFlip;      // 1.0 = flip that axis
 uniform vec3  uTint;
@@ -25,8 +27,23 @@ uniform float uFeather;   // 0 = crisp
 uniform int   uBlend;     // 0 over, 1 add, 2 multiply, 3 screen
 out vec4 frag;
 
+// Signed distance to a polygon (even-odd rule for inside), so freeform edges get the same anti-aliasing and feather.
+float polyDistance(vec2 s) {
+    float d = 1e9;
+    bool inside = false;
+    for (int i = 0; i < uPolyN; i++) {
+        vec2 a = uPoly[i == 0 ? uPolyN - 1 : i - 1], b = uPoly[i];
+        vec2 e = b - a, w = s - a;
+        float t = clamp(dot(w, e) / max(dot(e, e), 1e-12), 0.0, 1.0);
+        d = min(d, length(w - e * t));
+        if ((a.y > s.y) != (b.y > s.y) && s.x < (b.x - a.x) * (s.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside ? d : -d;
+}
+
 // How far inside the shape a point is, in unit-square units (negative = outside).
 float edgeDistance(vec2 s) {
+    if (uShape == 4) return polyDistance(s);
     if (uShape == 1) return 0.5 - length(s - 0.5);
     if (uShape == 2) {
         const float k = 0.894427191;                       // 1 / sqrt(1.25): the slanted edges' normal length
@@ -93,6 +110,7 @@ public:
         locTex_ = u("uTex"); locInvOut_ = u("uInvOut"); locIn_ = u("uIn"); locRes_ = u("uRes"); locShape_ = u("uShape");
         locOpacity_ = u("uOpacity"); locFlip_ = u("uFlip"); locTint_ = u("uTint"); locHue_ = u("uHue"); locSat_ = u("uSat");
         locContrast_ = u("uContrast"); locBright_ = u("uBright"); locFeather_ = u("uFeather"); locBlend_ = u("uBlend");
+        locPoly_ = u("uPoly"); locPolyN_ = u("uPolyN");
         glGenVertexArrays(1, &vao_);
     }
     ~Renderer() {
@@ -119,7 +137,8 @@ public:
         // Back-most surface first, so the front of the list ends up on top.
         for (auto it = project.surfaces.rbegin(); it != project.surfaces.rend(); ++it) {
             const Surface& s = *it;
-            if (!s.visible || s.opacity <= 0.0f) continue;
+            if (!project.isShown(s) || s.opacity <= 0.0f) continue;
+            if (s.shape == Shape::Freeform && s.poly.size() < 3) continue;
             ContentSource* src = project.media.source(s.mediaId);
             if (!src) continue;
 
@@ -136,7 +155,12 @@ public:
             glBindTexture(GL_TEXTURE_2D, src->texture());
             glUniformMatrix3fv(locInvOut_, 1, GL_TRUE, invOut.m);   // GL_TRUE: our matrices are row-major
             glUniformMatrix3fv(locIn_,     1, GL_TRUE, inH.m);
-            glUniform1i(locShape_, (int)s.shape);
+            glUniform1i(locShape_, s.shape == Shape::Line ? 0 : (int)s.shape);       // a line is a (thin) quad
+            if (s.shape == Shape::Freeform) {
+                const int n = std::min<int>((int)s.poly.size(), kMaxPolyPoints);
+                glUniform2fv(locPoly_, n, &s.poly[0].x);
+                glUniform1i(locPolyN_, n);
+            }
             glUniform1f(locOpacity_, s.opacity);
             glUniform2f(locFlip_, s.flipH ? 1.0f : 0.0f, s.flipV ? 1.0f : 0.0f);
             glUniform3f(locTint_, s.tintR, s.tintG, s.tintB);
@@ -165,5 +189,6 @@ private:
 
     GLuint prog_ = 0, vao_ = 0;
     GLint locTex_ = -1, locInvOut_ = -1, locIn_ = -1, locRes_ = -1, locShape_ = -1, locOpacity_ = -1, locFlip_ = -1;
+    GLint locPoly_ = -1, locPolyN_ = -1;
     GLint locTint_ = -1, locHue_ = -1, locSat_ = -1, locContrast_ = -1, locBright_ = -1, locFeather_ = -1, locBlend_ = -1;
 };
