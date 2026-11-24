@@ -118,7 +118,9 @@ public:
     }
     void holdCtrl(bool on) { act([this, on] { io().AddKeyEvent(ImGuiMod_Ctrl, on); }); }
     void typeText(const std::string& t) { act([this, t] { io().AddInputCharactersUTF8(t.c_str()); }); wait(1); }
-    void wheel(float notches) { for (int i = 0; i < 4; i++) act([this, notches] { io().AddMouseWheelEvent(0, notches / 4.0f); }); wait(2); }
+    // ImGui spreads queued input over frames and scrolls a frame after the wheel moves, so wait until the layout has
+    // settled: a position looked up any sooner can still be from before the scroll (a click then lands a row off).
+    void wheel(float notches) { for (int i = 0; i < 4; i++) act([this, notches] { io().AddMouseWheelEvent(0, notches / 4.0f); }); wait(5); }
 
     // ---------------------------------------------------------------- lazily evaluated positions
     static Pos at(float x, float y) { return [=] { return ImVec2(x, y); }; }

@@ -14,3 +14,5 @@ imgui.ini
 *.mp3
 *.flac
 !tests/data/.gitkeep
+# ...except the show the web player publishes: its song, videos and models must be online with it
+!web/show/**
