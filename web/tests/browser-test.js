@@ -99,7 +99,7 @@ async function run() {
   try {
     const r = await fetch('../show/show.maphappy');
     const show = build(await r.json());
-    expect('the demo show loads without warnings', show.warnings.length === 0 && show.audioAssets.size === 1 && show.timeline.audioClips.length === 1);
+    expect('the demo show loads without warnings', show.warnings.length === 0 && show.audioAssets.size === 1 && show.timeline.tracks.filter(t => t.kind === 'audio').length === 1);
     const cube = show.surfaces.find(s => s.name === 'Cube'), title = show.surfaces.find(s => s.name === 'Title');
     applyTimeline(show, 0); const lm0 = cube.p.lightModel, t0 = title.p.opacity;
     applyTimeline(show, 9); const lm9 = cube.p.lightModel;

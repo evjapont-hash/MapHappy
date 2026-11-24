@@ -1,3 +1,5 @@
+import { audioClips } from './timeline.js';
+
 // The show's master clock. With songs on the timeline it is the AUDIO clock (Web Audio), so picture can't drift
 // from the music; with none, a plain timer. `avOffset` works as in the desktop app: audio = picture + avOffset.
 export class ShowClock {
@@ -46,7 +48,7 @@ export class ShowClock {
   schedule() {
     if (!this.ctx) return;
     const audioFrom = this.pos + this.show.avOffset;              // where the SOUND is when the picture is at pos
-    for (const c of this.show.timeline.audioClips) {
+    for (const c of audioClips(this.show.timeline)) {
       const buf = this.buffers.get(c.asset), end = c.start + c.duration;
       if (!buf || audioFrom >= end) continue;
       const skip = Math.max(0, audioFrom - c.start);

@@ -3,10 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { squareToQuad, invert3, mapPoint, quadCenter, lineQuad, effectiveOut, effectiveIn, objectViewProjection, objectModel, transformPoint, mul4, rotY } from '../js/math.js';
-import { valueAt, clipValue, evaluateTrack, readTimeline } from '../js/timeline.js';
+import { valueAt, clipValue, evaluateTrack, readTimeline, writeTimeline, paramTracks, audioClips } from '../js/timeline.js';
 import { PARAMS, defaultParams, cleanValue, parsePath } from '../js/params.js';
 import { makeCube, makeSphere, makeCylinder, makePlane, parseObj } from '../js/mesh.js';
-import { readShow, isShown, applyTimeline, PresetPlayer } from '../js/show.js';
+import { readShow, writeShow, isShown, applyTimeline, PresetPlayer, capturePreset, emptyShow } from '../js/show.js';
 
 const near = (a, b, tol = 1e-6) => assert.ok(Math.abs(a - b) <= tol, `${a} is not within ${tol} of ${b}`);
 const radius = v => { let r = 0; for (let i = 0; i < v.length; i += 8) r = Math.max(r, Math.hypot(v[i], v[i + 1], v[i + 2])); return r; };
@@ -42,11 +42,18 @@ test('the timeline evaluates exactly like the desktop one', () => {
 
 test('reading a timeline keeps ghost clips sharing their keyframes, and skips damage', () => {
   const tl = readTimeline({ length: 10, tracks: [
-    { kind: 'param', path: 'surface/1/opacity', clipData: [{ keys: [{ t: 1, v: 1, curve: 'linear' }, { t: 0, v: 0, curve: 'linear' }] }], clips: [{ start: 0, duration: 1, data: 0 }, { start: 3, duration: 1, data: 0 }, { start: 5, duration: 1, data: 7 }] },
-    { kind: 'audio', audioClips: [{ asset: 1, start: 1, duration: 30, offset: 2, gain: 9 }] }, 'junk'] });
-  const t = tl.paramTracks[0];
+    { id: 1, kind: 'param', path: 'surface/1/opacity', clipData: [{ keys: [{ t: 1, v: 1, curve: 'linear' }, { t: 0, v: 0, curve: 'linear' }] }], clips: [{ id: 1, start: 0, duration: 1, data: 0 }, { id: 2, start: 3, duration: 1, data: 0, ghost: true }, { id: 3, start: 5, duration: 1, data: 7 }] },
+    { id: 2, kind: 'audio', audioClips: [{ id: 4, asset: 1, start: 1, duration: 8, offset: 2, gain: 9 }] }, 'junk', { id: 1, kind: 'param' }] });
+  const t = paramTracks(tl)[0];
+  assert.equal(tl.tracks.length, 2);
   assert.equal(t.clips.length, 2); assert.equal(t.clips[0].keys, t.clips[1].keys); near(t.clips[0].keys[0].t, 0);
-  assert.equal(tl.audioClips[0].gain, 4); near(tl.length, 10);
+  assert.equal(audioClips(tl)[0].gain, 4); near(tl.length, 10);
+  assert.ok(tl.counters.track >= 3 && tl.counters.clip >= 5);
+  // writing it back keeps ghosts linked (one shared keyframe list)
+  const w = writeTimeline(tl);
+  assert.equal(w.tracks[0].clipData.length, 1); assert.equal(w.tracks[0].clips[1].data, 0); assert.equal(w.tracks[0].clips[1].ghost, true);
+  const again = readTimeline(JSON.parse(JSON.stringify(w)));
+  assert.deepEqual(writeTimeline(again), w);
 });
 
 test('parameters: the same table, ranges and paths as the desktop app', () => {
@@ -84,7 +91,7 @@ const project = () => ({
       masks: [{ shape: 'ellipse', mode: 'showOnly', min: [0.1, 0.2], max: [0.9, 2] }] },
     { id: 2, name: 'Poly', shape: 'freeform', points: [[0, 0], [1, 0], [0.5, 1]], blend: 'add', in: 'broken', out: [[0, 0], [1, 0], [1, 1], [0, 1]] },
   ],
-  timeline: { length: 20, tracks: [{ kind: 'param', path: 'surface/1/opacity', clipData: [{ keys: [{ t: 0, v: 0, curve: 'linear' }, { t: 2, v: 1, curve: 'linear' }] }], clips: [{ start: 1, duration: 2, data: 0 }] }] },
+  timeline: { length: 20, tracks: [{ id: 1, kind: 'param', path: 'surface/1/opacity', clipData: [{ keys: [{ t: 0, v: 0, curve: 'linear' }, { t: 2, v: 1, curve: 'linear' }] }], clips: [{ id: 1, start: 1, duration: 2, data: 0 }] }] },
   presets: [{ slot: 2, name: 'Blue', fade: 1, surfaces: [{ id: 1, media: 1, values: { hue: 200, visible: false } }], folders: [{ id: 2, visible: false }] }, { slot: 99 }],
   audioAssets: [{ id: 1, name: 'song', path: '/a/song.mp3', pathRel: 'music/song.mp3' }],
 });
@@ -123,4 +130,28 @@ test('presets cross-fade, switch things on at the start and off at the end', () 
   assert.ok(pl.fading); near(cube.p.hue, 0);
   pl.update(0.5); near(cube.p.hue, 100, 1e-6); assert.equal(cube.p.visible, 1); assert.ok(show.folders.get(2).visible);
   pl.update(0.6); near(cube.p.hue, 200); assert.equal(cube.p.visible, 0); assert.ok(!show.folders.get(2).visible); assert.ok(!pl.fading);
+});
+
+test('writeShow saves what readShow read: a show survives a round trip unchanged', () => {
+  const a = readShow(project(), resolve);
+  const j1 = writeShow(a);
+  const b = readShow(JSON.parse(JSON.stringify(j1)), resolve);
+  assert.deepEqual(writeShow(b), j1);
+  assert.equal(j1.format, 'maphappy'); assert.equal(j1.surfaces.length, 2);
+  assert.equal(j1.surfaces[0].mesh, 'file'); assert.equal(j1.surfaces[0].meshPathRel, 'a.obj');
+  assert.equal(j1.surfaces[1].blend, 'add'); assert.equal(j1.surfaces[1].points.length, 3);
+  assert.equal(j1.surfaces[0].masks[0].mode, 'showOnly');
+  assert.equal(j1.surfaces[0].visible, true);                    // on/off values are saved as true/false, like the desktop app
+  assert.equal(j1.presets.length, 1); assert.equal(j1.presets[0].key, 3);
+  assert.equal(j1.audioAssets[0].pathRel, 'music/song.mp3');
+  assert.ok(j1.counters.surface >= 3);
+});
+
+test('an empty show, and capturing a preset from the current look', () => {
+  const e = emptyShow();
+  assert.equal(e.surfaces.length, 0); assert.equal(e.mediaList[0].type, 'pattern');
+  const show = readShow(project(), resolve);
+  show.surfaces[0].p.hue = 33;
+  const pr = capturePreset(show, 'Now', 0.5);
+  assert.equal(pr.surfaces.length, 2); near(pr.surfaces[0].values.hue, 33); assert.ok(!('lineWidth' in pr.surfaces[0].values));
 });

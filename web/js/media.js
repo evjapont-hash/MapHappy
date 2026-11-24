@@ -1,6 +1,6 @@
 // The media pool in the browser: the built-in test pattern, generators, videos, and stand-ins for missing files.
 // Every source has .tex (a WebGL texture, row 0 = bottom), .w, .h and update(dt).
-import { compileProgram, makeTarget, setLinearClamp, solidTexture } from './gl.js';
+import { compileProgram, makeTarget, destroyTarget, setLinearClamp, solidTexture } from './gl.js';
 import * as S from './shaders.gen.js';
 
 // What each generator type's parameters are (as in the desktop app's GeneratorDefs.h): only what the player needs.
@@ -53,6 +53,16 @@ class Generator {
     if (typeof v === 'boolean') return v ? 1 : 0;
     if (typeof v === 'string' && CHOICES[key]) return Math.max(0, CHOICES[key].indexOf(v));
     return def;
+  }
+  // After the editor changed the entry: a new size or new text takes effect.
+  refresh(entry) {
+    this.params = entry.params || this.params;
+    this.playing = entry.playing !== false;
+    const w = Math.max(16, Math.min(8192, entry.width | 0 || this.w)), h = Math.max(16, Math.min(8192, entry.height | 0 || this.h));
+    if (w !== this.w || h !== this.h) { destroyTarget(this.gl, this.target); this.w = w; this.h = h; this.target = makeTarget(this.gl, w, h); this.tex = this.target.tex; }
+    if (this.textTex) { this.gl.deleteTexture(this.textTex); this.textTex = null; }
+    this.makeText();
+    this.render();
   }
   makeText() {
     let text = '';
@@ -120,6 +130,7 @@ class Pattern {                              // the built-in test pattern (media
 }
 
 class Video {
+  static isVideo = true;
   constructor(gl, url, loop, playing) {
     this.gl = gl; this.w = 16; this.h = 9; this.ready = false; this.wantPlay = playing;
     this.tex = solidTexture(gl, 0, 0, 0);
@@ -141,6 +152,18 @@ class Video {
 
 class Missing { constructor(gl) { this.tex = solidTexture(gl, 70, 28, 28); this.w = 64; this.h = 36; } update() {} }
 
+// One media source from its project-file entry (null for the built-in pattern, which buildMedia makes).
+export function createSource(gl, m, resolve, warn) {
+  if (m.kind === 'video') {
+    const url = resolve(m.path, m.pathRel);
+    if (!url) { warn(`Can't find the video "${m.name}"`); return new Missing(gl); }
+    return new Video(gl, url, m.loop !== false, m.playing !== false);
+  }
+  if (BODIES[m.type]) return new Generator(gl, m);
+  if (m.type !== 'pattern') warn(`Skipped "${m.name}", a generator this player doesn't know`);
+  return null;
+}
+
 // Builds the pool from a project file's "media" list. `resolve(path, rel)` turns stored paths into URLs.
 export function buildMedia(gl, list, resolve, warn) {
   const pool = new Map();
@@ -149,17 +172,8 @@ export function buildMedia(gl, list, resolve, warn) {
   pool.set(1, new Pattern(gl, patternPlaying));
   for (const m of Array.isArray(list) ? list : []) {
     if (!m || typeof m !== 'object' || !(m.id > 1) || pool.has(m.id)) continue;
-    try {
-      if (m.kind === 'video') {
-        const url = resolve(m.path, m.pathRel);
-        if (!url) { warn(`Can't find the video "${m.name}"`); pool.set(m.id, new Missing(gl)); continue; }
-        pool.set(m.id, new Video(gl, url, m.loop !== false, m.playing !== false));
-      } else if (BODIES[m.type]) {
-        pool.set(m.id, new Generator(gl, m));
-      } else if (m.type !== 'pattern') {
-        warn(`Skipped "${m.name}", a generator this player doesn't know`);
-      }
-    } catch (e) { warn(String(e.message || e)); pool.set(m.id, new Missing(gl)); }
+    try { const src = createSource(gl, m, resolve, warn); if (src) pool.set(m.id, src); }
+    catch (e) { warn(String(e.message || e)); pool.set(m.id, new Missing(gl)); }
   }
   return pool;
 }
