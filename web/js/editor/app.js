@@ -24,7 +24,7 @@ class Editor {
     this.renderer = new Renderer(this.gl);
     this.files = new FileStore(PUBLISHED);
     this.player = new PresetPlayer();
-    this.sel = { surface: 0, key: null }; this.selMedia = 0;
+    this.sel = { surface: 0, key: null }; this.selMedia = 0; this.selFolder = 0; this.selMask = -1;
     this.snap = true; this.live = false; this.blackout = false;
     this.undo = []; this.redo = []; this.snapshot = ''; this.savedSnapshot = '';
     this.stageView = new StageView(this, $('stage'), $('overlay'));
@@ -62,7 +62,7 @@ class Editor {
   }
 
   selected() { return this.show.surfaces.find(s => s.id === this.sel.surface) || null; }
-  select(id) { if (this.sel.surface !== id) { this.sel.surface = id; this.panels.tab = 'surfaces'; this.panels.render(); } }
+  select(id) { if (this.sel.surface !== id || this.selFolder) { this.sel.surface = id; this.selFolder = 0; this.selMask = -1; this.panels.tab = 'surfaces'; this.panels.render(); } }
   selectKey(k) { this.sel.key = k; }
   defaultMedia() { return this.show.mediaList.some(m => m.id === this.selMedia) ? this.selMedia : 1; }
 

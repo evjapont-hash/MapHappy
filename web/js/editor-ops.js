@@ -207,3 +207,47 @@ export function beatGrid(show) {
   }
   return null;
 }
+
+// ---------------------------------------------------------------- folders (as in the desktop app)
+// A folder only organises: hiding one hides everything inside it; the drawing order stays the surfaces' order.
+export function addFolder(show, name = '', parent = 0) {
+  const id = Math.max(show.counters.folder | 0, 1, ...[...show.folders.keys()].map(k => k + 1));
+  show.counters.folder = id + 1;
+  show.folders.set(id, { id, name: name || `Folder ${id}`, parent: show.folders.has(parent) ? parent : 0, visible: true, open: true });
+  return id;
+}
+// Is folder `inner` the folder `outer`, or inside it? (0 = the top level, which holds everything.)
+export function folderWithin(show, inner, outer) {
+  if (outer === 0) return true;
+  for (let guard = 0; inner && guard <= show.folders.size; guard++) {
+    if (inner === outer) return true;
+    inner = show.folders.get(inner)?.parent || 0;
+  }
+  return false;
+}
+export function folderDepth(show, id) {
+  let d = 0;
+  for (let guard = 0; id && guard <= show.folders.size; guard++, d++) id = show.folders.get(id)?.parent || 0;
+  return d;
+}
+// Moves a folder into another (0 = top level); refused if that would put it inside itself.
+export function moveFolder(show, id, parent) {
+  const f = show.folders.get(id);
+  if (!f || (parent && !show.folders.has(parent)) || folderWithin(show, parent, id)) return false;
+  f.parent = parent;
+  return true;
+}
+export function moveSurfaceToFolder(show, surfaceId, folder) {
+  const s = show.surfaces.find(x => x.id === surfaceId);
+  if (!s || (folder && !show.folders.has(folder))) return false;
+  s.folder = folder;
+  return true;
+}
+// Deletes a folder but nothing in it: its surfaces and folders move up to its parent.
+export function removeFolder(show, id) {
+  const f = show.folders.get(id);
+  if (!f) return;
+  for (const o of show.folders.values()) if (o.parent === id) o.parent = f.parent;
+  for (const s of show.surfaces) if (s.folder === id) s.folder = f.parent;
+  show.folders.delete(id);
+}

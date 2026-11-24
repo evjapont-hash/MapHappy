@@ -1,4 +1,5 @@
 // Drives the web editor like a person would and checks the result.
+import { squareToQuad, mapPoint } from '../js/math.js';
 const lines = [];
 let passed = 0, failed = 0;
 const expect = (what, ok) => { lines.push(`${ok ? 'PASS' : 'FAIL'}  ${what}`); ok ? passed++ : failed++; document.getElementById('out').textContent = lines.join('\n') + '\n...'; };
@@ -114,6 +115,47 @@ try {
   click(doc.getElementById('live')); await frames(1);
   doc.body.dispatchEvent(new win.KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true })); await frames(2);
   expect('in Live mode, key 1 plays it', ed.live && near(ed.selected().p.hue, 0, 1e-6));
+
+  // ---- folders
+  click(doc.querySelector('.tabs button[data-tab="surfaces"]')); await frames(1);
+  const circ = ed.show.surfaces.find(s => s.shape === 'circle');
+  ed.select(circ.id); await frames(1);
+  click(button('+ Folder')); await frames(1);
+  const fid = ed.selFolder;
+  expect('+ Folder makes a folder, listed and selected', fid > 0 && ed.show.folders.has(fid) && !!doc.querySelector(`#panel [data-folder="${fid}"]`));
+  { const src = doc.querySelector(`#panel [data-surface="${circ.id}"]`), dst = doc.querySelector(`#panel [data-folder="${fid}"]`), dt = new win.DataTransfer();
+    src.dispatchEvent(new win.DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    dst.dispatchEvent(new win.DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    dst.dispatchEvent(new win.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })); await frames(2); }
+  expect('dragging a surface onto a folder puts it inside', circ.folder === fid);
+  doc.querySelector(`#panel [data-folder="${fid}"] input[type=checkbox]`).click(); await frames(3);
+  expect('unticking the folder hides what is inside it on the stage', !ed.show.folders.get(fid).visible && stagePixel(0.5, 0.5).r < 20);
+  doc.querySelector(`#panel [data-folder="${fid}"] input[type=checkbox]`).click(); await frames(3);
+  expect('...and ticking it brings it back', stagePixel(0.5, 0.5).r > 100);
+  click(button('Delete folder')); await frames(1);
+  expect('deleting the folder keeps the surface (it moves up a level)', !ed.show.folders.has(fid) && circ.folder === 0 && ed.show.surfaces.includes(circ));
+
+  // ---- masks, dragged on the stage
+  ed.select(circ.id); await frames(1);
+  const masksSec = [...doc.querySelectorAll('#panel details')].find(d => d.querySelector('summary').textContent.startsWith('Masks'));
+  masksSec.open = true; await frames(1);
+  click([...masksSec.querySelectorAll('button')].find(b => b.textContent === '+ Rectangle')); await frames(3);
+  const mk = circ.masks[0];
+  expect('+ Rectangle adds a mask, selected for editing, and it cuts a hole', ed.selMask === 0 && !!mk && stagePixel(0.5, 0.5).r < 20);
+  const unitToStage = u => mapPoint(squareToQuad(circ.out), u);          // through the surface's real (perspective) warp
+  await drag(overlay, onStage(unitToStage(mk.max)), onStage(unitToStage({ x: 0.9, y: 0.9 })));
+  expect('dragging a mask corner on the stage resizes it', near(mk.max.x, 0.9, 0.02) && near(mk.max.y, 0.9, 0.02) && near(mk.min.x, 0.3, 1e-6));
+  await drag(overlay, onStage(unitToStage({ x: 0.5, y: 0.5 })), onStage(unitToStage({ x: 0.45, y: 0.5 })));
+  expect('dragging inside it moves it', near(mk.min.x, 0.25, 0.02) && near(mk.max.x, 0.85, 0.02));
+  click([...masksSec.querySelectorAll('button')].find(b => b.textContent === '+ Polygon')); await frames(2);
+  const pm = circ.masks[1];
+  pointer(overlay, 'pointerdown', 0, 0); pointer(overlay, 'pointerup', 0, 0);
+  const mid = onStage(unitToStage({ x: 0.5, y: 0.7 })), b2 = overlay.getBoundingClientRect();
+  overlay.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, clientX: b2.left + mid.x, clientY: b2.top + mid.y })); await frames(1);
+  expect('double-clicking a polygon mask edge adds a point', pm.points.length === 4);
+  const p0 = onStage(unitToStage(pm.points[0]));
+  overlay.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b2.left + p0.x, clientY: b2.top + p0.y })); await frames(1);
+  expect('right-clicking one of its points deletes it', pm.points.length === 3);
 
   // ---- 3D object and lighting
   click(doc.querySelector('.tabs button[data-tab="surfaces"]')); await frames(1);

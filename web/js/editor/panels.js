@@ -3,7 +3,10 @@ import { el, clear, row, slider, select, checkbox, textInput, section, fileButto
 import { PARAMS, formatValue, cleanValue, LIGHT_MODEL_NAMES } from '../params.js';
 import { GEN_TYPES, genType, newGeneratorEntry } from '../gendefs.js';
 import { createSource } from '../media.js';
-import { capturePreset } from '../show.js';
+import { capturePreset, isShown } from '../show.js';
+
+// Are a folder and every folder above it visible?
+const isShownFolder = (show, id) => isShown(show, { p: { visible: 1 }, folder: id });
 import { uniquePath } from '../files.js';
 import * as ops from '../editor-ops.js';
 
@@ -30,27 +33,89 @@ export class Panels {
     this.body.scrollTop = scroll;
   }
 
-  // ------------------------------------------------------------------ surfaces
+  // ------------------------------------------------------------------ surfaces (and folders)
+  // The folder new surfaces go into: the selected folder, or the selected surface's folder.
+  currentFolder() { const ed = this.ed; if (ed.selFolder && ed.show.folders.has(ed.selFolder)) return ed.selFolder; return ed.selected()?.folder || 0; }
+
   surfaces() {
     const ed = this.ed, show = ed.show, b = this.body;
+    if (ed.selFolder && !show.folders.has(ed.selFolder)) ed.selFolder = 0;
     b.append(el('div', { class: 'buttons' }, SHAPE_LIST.map(([shape, label]) =>
-      el('button', { text: `+ ${label}`, on: { click: () => { const s = ops.addSurface(show, shape, ed.defaultMedia()); ed.select(s.id); ed.commit(); } } }))));
-    const sel = ed.selected();
+      el('button', { text: `+ ${label}`, on: { click: () => { const s = ops.addSurface(show, shape, ed.defaultMedia(), this.currentFolder()); ed.select(s.id); ed.commit(); } } }))));
+    const sel = ed.selFolder ? null : ed.selected();
     b.append(el('div', { class: 'buttons' },
       el('button', { text: 'Up', disabled: !sel, title: 'Draw it in front of the one above', on: { click: () => { ops.moveSurface(show, sel.id, -1); ed.commit(); this.render(); } } }),
       el('button', { text: 'Down', disabled: !sel, on: { click: () => { ops.moveSurface(show, sel.id, +1); ed.commit(); this.render(); } } }),
       el('button', { text: 'Duplicate', disabled: !sel, on: { click: () => { const c = ed.duplicate(sel); ed.select(c.id); ed.commit(); } } }),
-      el('button', { text: 'Delete', class: 'danger', disabled: !sel, on: { click: () => { ops.removeSurface(show, sel.id); ed.select(0); ed.commit(); } } })));
-    const list = el('div', { class: 'list' });
-    for (const s of show.surfaces) {
-      list.append(el('div', { class: 'item' + (sel === s ? ' selected' : ''), on: { click: e => { if (e.target.tagName !== 'INPUT') ed.select(s.id); } } },
-        checkbox(s.p.visible >= 0.5, v => { this.setParam(s, 'visible', v ? 1 : 0, true); }, { title: 'Visible' }),
-        el('span', { class: 'tag', text: { quad: '▭', circle: '◯', triangle: '△', line: '╱', freeform: '✶', object3d: '❒' }[s.shape] }),
-        el('span', { text: s.name })));
-    }
+      el('button', { text: 'Delete', class: 'danger', disabled: !sel && !ed.selFolder, title: ed.selFolder ? 'Delete the folder (what is in it moves up a level)' : 'Delete the surface',
+        on: { click: () => { if (ed.selFolder) { ops.removeFolder(show, ed.selFolder); ed.selFolder = 0; } else { ops.removeSurface(show, sel.id); ed.select(0); } ed.commit(); this.render(); } } }),
+      el('button', { text: '+ Folder', title: 'A folder to organise surfaces: drag surfaces onto it; hiding it hides all it holds',
+        on: { click: () => { ed.selFolder = ops.addFolder(show, '', this.currentFolder()); ed.commit(); this.render(); } } })));
+
+    const list = el('div', { class: 'list tree' });
+    const tags = { quad: '▭', circle: '◯', triangle: '△', line: '╱', freeform: '✶', object3d: '❒' };
+    // drag and drop: surfaces and folders onto folders (or onto the top-level strip)
+    const dropOn = (node, folder) => {
+      node.addEventListener('dragover', e => { e.preventDefault(); node.classList.add('drop'); });
+      node.addEventListener('dragleave', () => node.classList.remove('drop'));
+      node.addEventListener('drop', e => {
+        e.preventDefault(); e.stopPropagation(); node.classList.remove('drop');
+        const [kind, id] = (e.dataTransfer.getData('text/plain') || '').split(':');
+        if (kind === 'surface') ops.moveSurfaceToFolder(show, Number(id), folder);
+        else if (kind === 'folder' && !ops.moveFolder(show, Number(id), folder)) { ed.status("A folder can't go inside itself."); return; }
+        ed.commit(); this.render();
+      });
+    };
+    const drag = (node, what) => { node.draggable = true; node.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', what)); };
+    const addRows = (parent, depth) => {
+      for (const f of show.folders.values()) {
+        if (f.parent !== parent) continue;
+        const dim = !isShownFolder(show, f.parent);
+        const row = el('div', { class: 'item folder' + (ed.selFolder === f.id ? ' selected' : '') + (dim ? ' dimmed' : ''), style: { paddingLeft: `${6 + depth * 14}px` }, 'data-folder': f.id,
+          on: { click: e => { if (e.target.tagName === 'INPUT') return; if (e.target.classList.contains('twisty')) { f.open = !f.open; ed.commit(); this.render(); return; } ed.selFolder = f.id; ed.sel.surface = 0; this.render(); } } },
+          el('span', { class: 'twisty', text: f.open ? '▾' : '▸' }),
+          checkbox(f.visible, v => { f.visible = v; ed.commit(); this.render(); }, { title: 'Visible (hides everything inside)' }),
+          el('span', { class: 'tag', text: '🗀' }), el('span', { text: f.name }));
+        drag(row, `folder:${f.id}`); dropOn(row, f.id);
+        list.append(row);
+        if (f.open) addRows(f.id, depth + 1);
+      }
+      for (const s of show.surfaces) {
+        if (s.folder !== parent && !(parent === 0 && s.folder && !show.folders.has(s.folder))) continue;
+        const dim = !isShownFolder(show, s.folder);
+        const row = el('div', { class: 'item' + (sel === s ? ' selected' : '') + (dim ? ' dimmed' : ''), style: { paddingLeft: `${6 + depth * 14}px` }, 'data-surface': s.id,
+          on: { click: e => { if (e.target.tagName !== 'INPUT') ed.select(s.id); } } },
+          checkbox(s.p.visible >= 0.5, v => { this.setParam(s, 'visible', v ? 1 : 0, true); }, { title: 'Visible' }),
+          el('span', { class: 'tag', text: tags[s.shape] }), el('span', { text: s.name }));
+        drag(row, `surface:${s.id}`);
+        list.append(row);
+      }
+    };
+    addRows(0, 0);
+    if (show.folders.size) { const top = el('div', { class: 'item droptop', text: '↥ drop here for the top level' }); dropOn(top, 0); list.append(top); }
     if (!show.surfaces.length) list.append(el('div', { class: 'hint', text: 'No surfaces yet: add one above.' }));
     b.append(list);
-    if (sel) this.inspector(sel); else b.append(el('p', { class: 'hint', text: 'Select a surface (here or on the stage) to edit it.' }));
+    const folder = ed.selFolder && show.folders.get(ed.selFolder);
+    if (folder) this.folderInspector(folder);
+    else if (sel) this.inspector(sel); else b.append(el('p', { class: 'hint', text: 'Select a surface (here or on the stage) to edit it.' }));
+  }
+
+  folderOptions(exclude = 0) {
+    const show = this.ed.show, out = [[0, 'Top level']];
+    const walk = (parent, depth) => { for (const f of show.folders.values()) if (f.parent === parent && !(exclude && ops.folderWithin(show, f.id, exclude))) { out.push([f.id, `${'  '.repeat(depth)}${f.name}`]); walk(f.id, depth + 1); } };
+    walk(0, 1);
+    return out;
+  }
+
+  folderInspector(f) {
+    const ed = this.ed, show = ed.show, b = this.body;
+    b.append(el('h3', { text: 'Folder' }));
+    b.append(row('Name', textInput(f.name, v => { f.name = v || f.name; ed.commit(); this.render(); })));
+    b.append(row('Visible', checkbox(f.visible, v => { f.visible = v; ed.commit(); this.render(); })));
+    b.append(row('Inside', select(this.folderOptions(f.id), f.parent, v => { if (!ops.moveFolder(show, f.id, Number(v))) ed.status("A folder can't go inside itself."); ed.commit(); this.render(); })));
+    const n = show.surfaces.filter(s => s.folder && ops.folderWithin(show, s.folder, f.id)).length;
+    b.append(el('p', { class: 'hint', text: `${n} surface${n === 1 ? '' : 's'} inside. New surfaces are added to the selected folder. Deleting a folder keeps what is in it (it moves up a level).` }));
+    b.append(el('div', { class: 'buttons' }, el('button', { text: 'Delete folder', class: 'danger', on: { click: () => { ops.removeFolder(show, f.id); ed.selFolder = 0; ed.commit(); this.render(); } } })));
   }
 
   setParam(s, key, v, final) {
@@ -86,6 +151,7 @@ export class Panels {
     b.append(el('h3', { text: 'Inspector' }));
     b.append(row('Name', textInput(s.name, v => { s.name = v || s.name; ed.commit(); this.render(); })));
     b.append(row('Shape', select(SHAPE_LIST, s.shape, v => { ops.setShape(show, s, v); ed.commit(); this.render(); })));
+    if (show.folders.size) b.append(row('Folder', select(this.folderOptions(), s.folder, v => { ops.moveSurfaceToFolder(show, s.id, Number(v)); ed.commit(); this.render(); })));
     b.append(row('Picture', select(show.mediaList.map(m => [m.id, m.name || `Media ${m.id}`]), s.media, v => { s.media = Number(v); ed.commit(); }),
       el('button', { text: 'Fit', title: 'Show the whole picture again (resets the input region)', on: { click: () => { ops.resetInput(show, s); ed.commit(); } } })));
     if (s.shape === 'line') this.params(s, 'Line', b);
@@ -122,14 +188,16 @@ export class Panels {
 
   masks(s, body) {
     const ed = this.ed;
-    const add = shape => () => { if (s.masks.length >= 6) return; s.masks.push({ name: `Mask ${s.masks.length + 1}`, shape, mode: 0, enabled: true, feather: 0, min: { x: 0.3, y: 0.3 }, max: { x: 0.7, y: 0.7 }, points: shape === 2 ? [{ x: 0.5, y: 0.25 }, { x: 0.75, y: 0.7 }, { x: 0.25, y: 0.7 }] : [] }); ed.commit(); this.render(); };
+    const add = shape => () => { if (s.masks.length >= 6) return; ed.selMask = s.masks.length; s.masks.push({ name: `Mask ${s.masks.length + 1}`, shape, mode: 0, enabled: true, feather: 0, min: { x: 0.3, y: 0.3 }, max: { x: 0.7, y: 0.7 }, points: shape === 2 ? [{ x: 0.5, y: 0.25 }, { x: 0.75, y: 0.7 }, { x: 0.25, y: 0.7 }] : [] }); ed.commit(); this.render(); };
     body.append(el('p', { class: 'hint', text: 'Masks cut parts of the surface away (positions are 0..1 across the surface).' }),
-      el('div', { class: 'buttons' }, el('button', { text: '+ Rectangle', on: { click: add(0) } }), el('button', { text: '+ Ellipse', on: { click: add(1) } })));
+      el('div', { class: 'buttons' }, el('button', { text: '+ Rectangle', on: { click: add(0) } }), el('button', { text: '+ Ellipse', on: { click: add(1) } }), el('button', { text: '+ Polygon', on: { click: add(2) } })),
+      el('p', { class: 'hint', text: 'Click a mask to edit it on the stage: drag its corners or points, drag inside it to move it. Polygon: double-click an edge to add a point, right-click a point to delete it.' }));
     s.masks.forEach((m, i) => {
-      const box = el('div', { class: 'card' });
+      const box = el('div', { class: 'card mask' + (ed.selMask === i ? ' active' : ''), on: { click: e => { if (e.target.closest('input, select, button')) return; ed.selMask = ed.selMask === i ? -1 : i; this.render(); } } });
       box.append(row(m.name, checkbox(m.enabled, v => { m.enabled = v; ed.commit(); }, { title: 'On' }),
         select([[0, 'Hide inside'], [1, 'Show only inside']], m.mode, v => { m.mode = Number(v); ed.commit(); }),
-        el('button', { text: '✕', class: 'danger', title: 'Delete this mask', on: { click: () => { s.masks.splice(i, 1); ed.commit(); this.render(); } } })));
+        el('button', { text: '✕', class: 'danger', title: 'Delete this mask', on: { click: () => { s.masks.splice(i, 1); ed.selMask = -1; ed.commit(); this.render(); } } })));
+      if (m.shape === 2) box.append(el('p', { class: 'hint', text: `Polygon, ${m.points.length} points.` }));
       if (m.shape !== 2) for (const [label, pt, k] of [['Left', 'min', 'x'], ['Top', 'min', 'y'], ['Right', 'max', 'x'], ['Bottom', 'max', 'y']]) {
         const sl = slider({ label, min: 0, max: 1, step: 0.001, get: () => m[pt][k], set: (v, final) => { m[pt][k] = v; if (m.min.x > m.max.x - 0.01 && pt === 'min') m.min.x = m.max.x - 0.01; final ? ed.commit() : ed.touched(); }, format: v => `${Math.round(v * 100)}%` });
         this.bindings.push(sl); box.append(sl.node);

@@ -119,3 +119,23 @@ test('tempo detection finds the demo song\'s 120 BPM and its first beat', async 
   assert.ok(err < 0.03, `first beat off by ${err}`);
   assert.equal(detectBeats(new Float32Array(1000), rate).bpm, 0);                        // too short: no tempo
 });
+
+test('folders: nesting, no loops, hiding passes down, deleting keeps the contents', async () => {
+  const { isShown } = await import('../js/show.js');
+  const show = emptyShow();
+  const a = ops.addSurface(show, 'quad'), b = ops.addSurface(show, 'circle');
+  const outer = ops.addFolder(show, 'Outer'), inner = ops.addFolder(show, '', outer);
+  assert.equal(show.folders.get(inner).name, `Folder ${inner}`); assert.equal(ops.folderDepth(show, inner), 2);
+  assert.ok(ops.moveSurfaceToFolder(show, a.id, inner) && ops.moveSurfaceToFolder(show, b.id, outer));
+  assert.ok(!ops.moveSurfaceToFolder(show, a.id, 99));
+  assert.ok(!ops.moveFolder(show, outer, inner) && !ops.moveFolder(show, outer, outer));            // not inside itself
+  assert.ok(isShown(show, a));
+  show.folders.get(outer).visible = false;
+  assert.ok(!isShown(show, a) && !isShown(show, b));                                                 // hiding passes down
+  show.folders.get(outer).visible = true;
+  ops.removeFolder(show, outer);
+  assert.equal(show.folders.get(inner).parent, 0); assert.equal(b.folder, 0); assert.equal(a.folder, inner);
+  const j = writeShow(show), again = readShow(JSON.parse(JSON.stringify(j)), () => null);
+  assert.deepEqual(writeShow(again), j); assert.equal(again.folders.size, 1);
+  assert.ok(ops.addFolder(show) > inner);
+});

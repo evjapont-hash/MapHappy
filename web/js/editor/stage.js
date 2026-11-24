@@ -134,7 +134,9 @@ export class StageView {
     this.poly(r, sel.out, ACCENT, 1.5);
     if (sel.shape !== 'quad' && sel.shape !== 'object3d') this.poly(r, mapAll(sel.out, outlineUnit(sel)), ACCENT, 2);
     this.poly(r, [sel.out[0], sel.out[2]], 'rgba(38,198,208,0.35)', 1, false); this.poly(r, [sel.out[1], sel.out[3]], 'rgba(38,198,208,0.35)', 1, false);
-    for (const m of sel.masks) this.poly(r, mapAll(sel.out, maskOutline(m)), m.enabled ? MASK : 'rgba(236,96,210,0.35)', 1.5);
+    sel.masks.forEach((m, i) => this.poly(r, mapAll(sel.out, maskOutline(m)), m.enabled ? MASK : 'rgba(236,96,210,0.35)', i === this.ed.selMask ? 2.5 : 1.5));
+    const mk = this.mask(sel);
+    if (mk) { mapAll(sel.out, maskHandles(mk)).forEach(p => this.handle(r, p, 'square', MASK)); return; }       // the selected mask is what you edit
     const free = sel.shape === 'freeform';
     sel.out.forEach(p => this.handle(r, p, free ? 'small' : 'corner'));
     if (free) mapAll(sel.out, sel.poly).forEach(p => this.handle(r, p, 'square'));
@@ -162,6 +164,12 @@ export class StageView {
       return null;
     }
     const aspect = ed.show.outW / ed.show.outH;
+    const mk = s && this.mask(s);
+    if (mk) {
+      const hs = mapAll(s.out, maskHandles(mk)), i = hs.findIndex(q => this.screenDist(q, e) < 10);
+      if (i >= 0) return { kind: mk.shape === 2 ? 'maskPoint' : 'maskCorner', i };
+      if (inside(mapAll(s.out, maskOutline(mk)), p)) return { kind: 'maskMove' };
+    }
     if (s) {
       if (s.shape === 'line') {
         if (this.screenDist(s.lineA, e) < 12) return { kind: 'lineA' };
@@ -213,6 +221,24 @@ export class StageView {
     } else if (d.kind === 'lineA' || d.kind === 'lineB') {
       const other = d.kind === 'lineA' ? s.lineB : s.lineA;
       if (Math.hypot(p.x - other.x, p.y - other.y) > 0.003) s[d.kind] = { x: p.x, y: p.y };
+    } else if (d.kind.startsWith('mask')) {
+      const mk = this.mask(s), u = this.unit(s, p), u0 = this.unit(s, d.last);
+      if (!mk || !u || !u0) return;
+      if (d.kind === 'maskPoint') mk.points[d.i] = clamp01(u);
+      else if (d.kind === 'maskMove') {
+        let mx = u.x - u0.x, my = u.y - u0.y;
+        if (mk.shape === 2) mk.points = mk.points.map(q => clamp01({ x: q.x + mx, y: q.y + my }));
+        else {                                                    // the box keeps its size and stays inside the surface
+          mx = Math.max(-mk.min.x, Math.min(1 - mk.max.x, mx)); my = Math.max(-mk.min.y, Math.min(1 - mk.max.y, my));
+          mk.min = { x: mk.min.x + mx, y: mk.min.y + my }; mk.max = { x: mk.max.x + mx, y: mk.max.y + my };
+        }
+      } else {                                                    // a box corner: the opposite corner stays put
+        const c = clamp01(u), o = maskHandles(mk)[(d.i + 2) % 4];
+        if (Math.abs(c.x - o.x) > 0.01 && Math.abs(c.y - o.y) > 0.01) {
+          mk.min = { x: Math.min(c.x, o.x), y: Math.min(c.y, o.y) }; mk.max = { x: Math.max(c.x, o.x), y: Math.max(c.y, o.y) };
+          d.i = (c.y > o.y ? (c.x > o.x ? 2 : 3) : (c.x > o.x ? 1 : 0));   // dragged past the other side: it is another corner now
+        }
+      }
     } else if (d.kind === 'point') {
       const H = squareToQuad(s.out), inv = H && invert3(H);
       if (inv) s.poly[d.i] = clamp01(mapPoint(inv, p));         // points stay inside the quad, where the picture is
@@ -223,11 +249,23 @@ export class StageView {
 
   up() { if (this.drag) { this.drag = null; this.ed.commit(); } }
 
+  // The selected surface's selected mask (masks are edited on the stage while one is selected), or null.
+  mask(s) { const i = this.ed.selMask; return this.pic?.surface ? null : (i >= 0 && s.masks[i]) || null; }
+  // A stage point in a surface's own unit square.
+  unit(s, p) { const H = squareToQuad(s.out), inv = H && invert3(H); return inv ? mapPoint(inv, p) : null; }
+
   // Freeform: double-click an edge to add a point there.
   dbl(e) {
-    const s = this.ed.selected();
-    if (!s || s.shape !== 'freeform' || this.pic.surface || s.poly.length >= 64) return;
-    const pts = mapAll(s.out, s.poly), b = this.overlay.getBoundingClientRect(), mx = e.clientX - b.left, my = e.clientY - b.top;
+    const s = this.ed.selected(), mk = s && this.mask(s);
+    if (mk && mk.shape === 2 && !this.pic.surface) { this.addPointOnEdge(e, s, mk.points, 16); return; }
+    if (!s || s.shape !== 'freeform' || this.pic.surface) return;
+    this.addPointOnEdge(e, s, s.poly, 64);
+  }
+
+  // Adds a point to an outline (in the surface's unit square) where the mouse is on one of its edges.
+  addPointOnEdge(e, s, outline, max) {
+    if (outline.length >= max) return;
+    const pts = mapAll(s.out, outline), b = this.overlay.getBoundingClientRect(), mx = e.clientX - b.left, my = e.clientY - b.top;
     let best = -1, bd = 10, at = null;
     pts.forEach((a, i) => {
       const A = this.toScreen(this.rect, a), B = this.toScreen(this.rect, pts[(i + 1) % pts.length]);
@@ -237,19 +275,27 @@ export class StageView {
     });
     const inv = squareToQuad(s.out) && invert3(squareToQuad(s.out));
     if (best < 0 || !inv) return;
-    s.poly.splice(best + 1, 0, clamp01(mapPoint(inv, at)));
+    outline.splice(best + 1, 0, clamp01(mapPoint(inv, at)));
     this.ed.commit();
   }
 
   // Freeform: right-click a point to delete it (three stay).
   context(e) {
     e.preventDefault();
-    const s = this.ed.selected();
+    const s = this.ed.selected(), mk = s && this.mask(s);
+    if (mk && mk.shape === 2 && !this.pic.surface) {
+      const i = mapAll(s.out, mk.points).findIndex(q => this.screenDist(q, e) < 10);
+      if (i >= 0 && mk.points.length > 3) { mk.points.splice(i, 1); this.ed.commit(); }
+      return;
+    }
     if (!s || s.shape !== 'freeform' || this.pic.surface || s.poly.length <= 3) return;
     const i = mapAll(s.out, s.poly).findIndex(q => this.screenDist(q, e) < 10);
     if (i >= 0) { s.poly.splice(i, 1); this.ed.commit(); }
   }
 }
+
+// What you drag on a mask: a polygon's points, or a box's four corners (top-left, top-right, bottom-right, bottom-left).
+function maskHandles(m) { return m.shape === 2 ? m.points : [m.min, { x: m.max.x, y: m.min.y }, m.max, { x: m.min.x, y: m.max.y }]; }
 
 function maskOutline(m) {
   if (m.shape === 2) return m.points;
