@@ -68,7 +68,7 @@ async function start(fromDrop = false) {
     const player = new PresetPlayer();
     if (running) running.stop();
     running = { show, renderer, clock, player, stage, blit, gl, blackout: false, dirty: true, stop() { clock.pause(); this.stopped = true; } };
-    $('showname').textContent = proj.name.replace(/\.maphappy$/i, '');
+    if (/^\s*(Show)?\s*$/.test($('showname').textContent)) $('showname').textContent = proj.name.replace(/\.maphappy$/i, '');   // a title written in the page wins
     status.textContent = show.warnings.length ? `Loaded with notes: ${show.warnings.join(' · ')}` : 'Ready.';
     startBtn.hidden = false;
     startBtn.onclick = async () => {

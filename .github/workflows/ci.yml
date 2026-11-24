@@ -46,13 +46,11 @@ jobs:
       - name: Web player tests
         run: |
           node web/tools/extract-shaders.mjs --check
-          node --test web/tests/unit.test.mjs
+          node --test web/tests/unit.test.mjs web/tests/editor.test.mjs
           python3 -m http.server 8765 --bind 127.0.0.1 --directory web > /dev/null 2>&1 &
           sleep 1
-          google-chrome --headless=new --no-sandbox --use-angle=swiftshader --enable-unsafe-swiftshader \
-            --virtual-time-budget=15000 --dump-dom http://127.0.0.1:8765/tests/browser.html > browser-tests.html
-          sed -n '/<pre id="out">/,/<\/pre>/p' browser-tests.html
-          grep -q "ALL CHECKS PASSED" browser-tests.html
+          node web/tools/run-browser-test.mjs http://127.0.0.1:8765/tests/browser.html google-chrome
+          node web/tools/run-browser-test.mjs http://127.0.0.1:8765/tests/editor-browser.html google-chrome
 
       - name: Test
         run: xvfb-run -a -s "-screen 0 3840x1080x24" ctest --test-dir build --output-on-failure --timeout 120

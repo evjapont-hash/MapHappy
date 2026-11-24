@@ -1,0 +1,259 @@
+// The web editor's Stage view: the show as the projector will show it, with the surfaces' outlines and handles
+// drawn on a 2D overlay. Drag a corner to warp, drag inside to move, drag a line's ends or a freeform's points;
+// double-click a freeform edge to add a point, right-click a point to delete it.
+// In "input" mode it shows the selected surface's picture instead, and the handles choose the part it shows.
+import { compileProgram } from '../gl.js';
+import { kFullscreenVS } from '../shaders.gen.js';
+import { squareToQuad, invert3, mapPoint, quadCenter, effectiveOut, effectiveIn } from '../math.js';
+import { isShown } from '../show.js';
+import { isConvex } from '../editor-ops.js';
+
+const BLIT_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec4 uRect;      // where the picture sits in the canvas, in pixels: x, y, w, h (y from the bottom)
+out vec4 frag;
+void main() {
+  vec2 uv = (gl_FragCoord.xy - uRect.xy) / uRect.zw;
+  frag = (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) ? vec4(0.06, 0.06, 0.07, 1.0) : vec4(texture(uTex, uv).rgb, 1.0);
+}`;
+
+const ACCENT = '#26c6d0', DIM = 'rgba(210,210,215,0.45)', MASK = 'rgba(236,96,210,0.9)';
+const circle = [...Array(72)].map((_, i) => { const a = 2 * Math.PI * i / 72; return { x: 0.5 + 0.5 * Math.cos(a), y: 0.5 + 0.5 * Math.sin(a) }; });
+
+// A surface's outline in its own unit square.
+function outlineUnit(s) {
+  if (s.shape === 'circle') return circle;
+  if (s.shape === 'triangle') return [{ x: 0.5, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+  if (s.shape === 'freeform') return s.poly;
+  return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+}
+function mapAll(quad, pts) { const H = squareToQuad(quad); return H ? pts.map(p => mapPoint(H, p)) : []; }
+function inside(poly, p) {
+  let r = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++)
+    if ((poly[i].y > p.y) !== (poly[j].y > p.y) && p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x) r = !r;
+  return r;
+}
+const clamp01 = v => ({ x: Math.max(0, Math.min(1, v.x)), y: Math.max(0, Math.min(1, v.y)) });
+
+export class StageView {
+  constructor(ed, glCanvas, overlay) {
+    this.ed = ed; this.canvas = glCanvas; this.overlay = overlay; this.ctx = overlay.getContext('2d');
+    this.blit = compileProgram(ed.gl, kFullscreenVS, BLIT_FS, 'stage view');
+    this.mode = 'output';               // 'output' | 'input'
+    this.drag = null;
+    this.hideHandles = false;           // Present mode
+    overlay.addEventListener('pointerdown', e => this.down(e));
+    overlay.addEventListener('pointermove', e => this.move(e));
+    overlay.addEventListener('pointerup', e => this.up(e));
+    overlay.addEventListener('dblclick', e => this.dbl(e));
+    overlay.addEventListener('contextmenu', e => this.context(e));
+  }
+
+  // What the view shows: the stage, or (input mode) the selected surface's picture.
+  picture() {
+    const ed = this.ed, s = ed.selected();
+    if (this.mode === 'input' && s) {
+      const src = ed.show.media.get(s.media);
+      if (src) return { tex: src.tex, w: src.w, h: src.h, surface: s };
+    }
+    return { tex: ed.stageRT.tex, w: ed.show.outW, h: ed.show.outH, surface: null };
+  }
+  // Where the picture sits in the canvas (CSS pixels, y down).
+  layout(pic) {
+    const W = this.overlay.clientWidth, H = this.overlay.clientHeight, m = 12;
+    const k = Math.min((W - 2 * m) / pic.w, (H - 2 * m) / pic.h), w = Math.max(1, pic.w * k), h = Math.max(1, pic.h * k);
+    return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+  }
+  toScreen(r, p) { return { x: r.x + p.x * r.w, y: r.y + p.y * r.h }; }
+  toNorm(r, e) { const b = this.overlay.getBoundingClientRect(); return { x: (e.clientX - b.left - r.x) / r.w, y: (e.clientY - b.top - r.y) / r.h }; }
+
+  draw() {
+    const gl = this.ed.gl, dpr = devicePixelRatio || 1;
+    const cw = Math.round(this.canvas.clientWidth * dpr), ch = Math.round(this.canvas.clientHeight * dpr);
+    if (this.canvas.width !== cw || this.canvas.height !== ch) { this.canvas.width = cw; this.canvas.height = ch; }
+    if (this.overlay.width !== cw || this.overlay.height !== ch) { this.overlay.width = cw; this.overlay.height = ch; }
+    const pic = this.picture(), r = this.layout(pic);
+    this.rect = r; this.pic = pic;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, cw, ch);
+    gl.useProgram(this.blit);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.ed.blackout ? null : pic.tex);
+    gl.uniform1i(this.blit.u('uTex'), 0);
+    gl.uniform4f(this.blit.u('uRect'), r.x * dpr, ch - (r.y + r.h) * dpr, r.w * dpr, r.h * dpr);
+    gl.bindVertexArray(this.ed.renderer.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    const c = this.ctx;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, cw, ch);
+    if (this.hideHandles) return;
+    c.strokeStyle = '#3a3b42'; c.lineWidth = 1; c.strokeRect(r.x - 0.5, r.y - 0.5, r.w + 1, r.h + 1);
+    if (pic.surface) this.drawInput(r, pic.surface); else this.drawOutput(r);
+  }
+
+  poly(r, pts, color, width = 1, close = true) {
+    const c = this.ctx;
+    if (pts.length < 2) return;
+    c.beginPath();
+    pts.forEach((p, i) => { const q = this.toScreen(r, p); i ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y); });
+    if (close) c.closePath();
+    c.strokeStyle = color; c.lineWidth = width; c.stroke();
+  }
+  handle(r, p, kind = 'corner', color = ACCENT) {
+    const c = this.ctx, q = this.toScreen(r, p);
+    c.beginPath();
+    if (kind === 'square') c.rect(q.x - 5, q.y - 5, 10, 10); else c.arc(q.x, q.y, kind === 'small' ? 5 : 7, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(20,20,24,0.85)'; c.fill(); c.strokeStyle = color; c.lineWidth = 2; c.stroke();
+  }
+  cross(r, p) {
+    const c = this.ctx, q = this.toScreen(r, p);
+    c.strokeStyle = ACCENT; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(q.x - 9, q.y); c.lineTo(q.x + 9, q.y); c.moveTo(q.x, q.y - 9); c.lineTo(q.x, q.y + 9); c.stroke();
+    c.beginPath(); c.arc(q.x, q.y, 6, 0, Math.PI * 2); c.stroke();
+  }
+
+  drawOutput(r) {
+    const ed = this.ed, show = ed.show, aspect = show.outW / show.outH, sel = ed.selected();
+    for (const s of show.surfaces) {
+      if (!isShown(show, s) || s === sel) continue;
+      this.poly(r, mapAll(effectiveOut(s, aspect), outlineUnit(s)), DIM);
+    }
+    if (!sel) return;
+    if (sel.shape === 'line') {
+      this.poly(r, effectiveOut(sel, aspect), ACCENT, 1.5);
+      this.poly(r, [sel.lineA, sel.lineB], 'rgba(38,198,208,0.4)', 1, false);
+      this.handle(r, sel.lineA); this.handle(r, sel.lineB);
+      this.cross(r, { x: (sel.lineA.x + sel.lineB.x) / 2, y: (sel.lineA.y + sel.lineB.y) / 2 });
+      return;
+    }
+    const eo = effectiveOut(sel, aspect);
+    if (eo.some((p, i) => Math.abs(p.x - sel.out[i].x) + Math.abs(p.y - sel.out[i].y) > 1e-5)) this.poly(r, mapAll(eo, outlineUnit(sel)), 'rgba(255,238,130,0.9)');   // where animation puts it
+    this.poly(r, sel.out, ACCENT, 1.5);
+    if (sel.shape !== 'quad' && sel.shape !== 'object3d') this.poly(r, mapAll(sel.out, outlineUnit(sel)), ACCENT, 2);
+    this.poly(r, [sel.out[0], sel.out[2]], 'rgba(38,198,208,0.35)', 1, false); this.poly(r, [sel.out[1], sel.out[3]], 'rgba(38,198,208,0.35)', 1, false);
+    for (const m of sel.masks) this.poly(r, mapAll(sel.out, maskOutline(m)), m.enabled ? MASK : 'rgba(236,96,210,0.35)', 1.5);
+    const free = sel.shape === 'freeform';
+    sel.out.forEach(p => this.handle(r, p, free ? 'small' : 'corner'));
+    if (free) mapAll(sel.out, sel.poly).forEach(p => this.handle(r, p, 'square'));
+    this.cross(r, quadCenter(sel.out));
+  }
+
+  drawInput(r, s) {
+    const ei = effectiveIn(s, this.pic.w / Math.max(1, this.pic.h));
+    if (ei.some((p, i) => Math.abs(p.x - s.in[i].x) + Math.abs(p.y - s.in[i].y) > 1e-5)) this.poly(r, mapAll(ei, outlineUnit(s)), 'rgba(255,238,130,0.9)');
+    this.poly(r, s.in, ACCENT, 1.5);
+    if (s.shape !== 'quad' && s.shape !== 'object3d' && s.shape !== 'line') this.poly(r, mapAll(s.in, outlineUnit(s)), ACCENT, 2);
+    s.in.forEach(p => this.handle(r, p));
+    this.cross(r, quadCenter(s.in));
+  }
+
+  // ---------------------------------------------------------------- mouse
+  screenDist(a, e) { const b = this.overlay.getBoundingClientRect(), q = this.toScreen(this.rect, a); return Math.hypot(q.x - (e.clientX - b.left), q.y - (e.clientY - b.top)); }
+
+  hit(e) {
+    const ed = this.ed, s = ed.selected(), p = this.toNorm(this.rect, e);
+    if (this.pic.surface) {                                     // input mode: the input quad's corners, or inside it
+      const i = s.in.findIndex(q => this.screenDist(q, e) < 12);
+      if (i >= 0) return { kind: 'inCorner', i };
+      if (inside(s.in, p)) return { kind: 'inMove' };
+      return null;
+    }
+    const aspect = ed.show.outW / ed.show.outH;
+    if (s) {
+      if (s.shape === 'line') {
+        if (this.screenDist(s.lineA, e) < 12) return { kind: 'lineA' };
+        if (this.screenDist(s.lineB, e) < 12) return { kind: 'lineB' };
+      } else {
+        if (s.shape === 'freeform') {
+          const pts = mapAll(s.out, s.poly), i = pts.findIndex(q => this.screenDist(q, e) < 9);
+          if (i >= 0) return { kind: 'point', i };
+        }
+        const i = s.out.findIndex(q => this.screenDist(q, e) < 12);
+        if (i >= 0) return { kind: 'corner', i };
+      }
+      const base = s.shape === 'line' ? effectiveOut(s, aspect) : s.out;
+      if (inside(mapAll(base, outlineUnit(s)), p) || inside(mapAll(effectiveOut(s, aspect), outlineUnit(s)), p)) return { kind: 'move' };
+    }
+    for (const o of ed.show.surfaces)                           // the top surface you can SEE under the mouse
+      if (isShown(ed.show, o) && inside(mapAll(effectiveOut(o, aspect), outlineUnit(o)), p)) return { kind: 'move', select: o.id };
+    return { kind: 'none' };
+  }
+
+  down(e) {
+    if (e.button !== 0) return;
+    const h = this.hit(e);
+    if (!h) return;
+    if (h.select) this.ed.select(h.select);
+    if (h.kind === 'none') { return; }
+    this.drag = { ...h, last: this.toNorm(this.rect, e) };
+    this.overlay.setPointerCapture(e.pointerId);
+  }
+
+  move(e) {
+    if (!this.drag) {                                            // hover feedback
+      const h = this.rect && this.hit(e);
+      this.overlay.style.cursor = !h || h.kind === 'none' ? 'default' : h.kind.endsWith('ove') ? 'move' : 'pointer';
+      return;
+    }
+    const ed = this.ed, s = ed.selected(), p = this.toNorm(this.rect, e), d = this.drag;
+    if (!s) return;
+    const dx = p.x - d.last.x, dy = p.y - d.last.y;
+    if (d.kind === 'corner' || d.kind === 'inCorner') {
+      const q = d.kind === 'corner' ? s.out : s.in, old = q[d.i];
+      q[d.i] = { x: p.x, y: p.y };
+      if (!isConvex(q)) q[d.i] = old;                            // a twisted quad has no valid projection
+    } else if (d.kind === 'move') {
+      for (const q of s.out) { q.x += dx; q.y += dy; }
+      if (s.shape === 'line') { s.lineA.x += dx; s.lineA.y += dy; s.lineB.x += dx; s.lineB.y += dy; }
+    } else if (d.kind === 'inMove') {
+      for (const q of s.in) { q.x += dx; q.y += dy; }
+    } else if (d.kind === 'lineA' || d.kind === 'lineB') {
+      const other = d.kind === 'lineA' ? s.lineB : s.lineA;
+      if (Math.hypot(p.x - other.x, p.y - other.y) > 0.003) s[d.kind] = { x: p.x, y: p.y };
+    } else if (d.kind === 'point') {
+      const H = squareToQuad(s.out), inv = H && invert3(H);
+      if (inv) s.poly[d.i] = clamp01(mapPoint(inv, p));         // points stay inside the quad, where the picture is
+    }
+    d.last = p;
+    ed.touched();
+  }
+
+  up() { if (this.drag) { this.drag = null; this.ed.commit(); } }
+
+  // Freeform: double-click an edge to add a point there.
+  dbl(e) {
+    const s = this.ed.selected();
+    if (!s || s.shape !== 'freeform' || this.pic.surface || s.poly.length >= 64) return;
+    const pts = mapAll(s.out, s.poly), b = this.overlay.getBoundingClientRect(), mx = e.clientX - b.left, my = e.clientY - b.top;
+    let best = -1, bd = 10, at = null;
+    pts.forEach((a, i) => {
+      const A = this.toScreen(this.rect, a), B = this.toScreen(this.rect, pts[(i + 1) % pts.length]);
+      const ex = B.x - A.x, ey = B.y - A.y, t = Math.max(0, Math.min(1, ((mx - A.x) * ex + (my - A.y) * ey) / Math.max(1e-6, ex * ex + ey * ey)));
+      const dd = Math.hypot(A.x + ex * t - mx, A.y + ey * t - my);
+      if (dd < bd) { bd = dd; best = i; at = { x: (A.x + ex * t - this.rect.x) / this.rect.w, y: (A.y + ey * t - this.rect.y) / this.rect.h }; }
+    });
+    const inv = squareToQuad(s.out) && invert3(squareToQuad(s.out));
+    if (best < 0 || !inv) return;
+    s.poly.splice(best + 1, 0, clamp01(mapPoint(inv, at)));
+    this.ed.commit();
+  }
+
+  // Freeform: right-click a point to delete it (three stay).
+  context(e) {
+    e.preventDefault();
+    const s = this.ed.selected();
+    if (!s || s.shape !== 'freeform' || this.pic.surface || s.poly.length <= 3) return;
+    const i = mapAll(s.out, s.poly).findIndex(q => this.screenDist(q, e) < 10);
+    if (i >= 0) { s.poly.splice(i, 1); this.ed.commit(); }
+  }
+}
+
+function maskOutline(m) {
+  if (m.shape === 2) return m.points;
+  if (m.shape === 0) return [m.min, { x: m.max.x, y: m.min.y }, m.max, { x: m.min.x, y: m.max.y }];
+  const c = { x: (m.min.x + m.max.x) / 2, y: (m.min.y + m.max.y) / 2 }, rx = (m.max.x - m.min.x) / 2, ry = (m.max.y - m.min.y) / 2;
+  return [...Array(48)].map((_, i) => { const a = 2 * Math.PI * i / 48; return { x: c.x + rx * Math.cos(a), y: c.y + ry * Math.sin(a) }; });
+}

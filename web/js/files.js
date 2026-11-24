@@ -23,7 +23,8 @@ export class FileStore {
   // Loads every stored file (call once at start-up).
   async init() {
     try {
-      this.db = await openDb();
+      // (with a time limit: a browser that blocks storage must not leave the editor waiting forever)
+      this.db = await Promise.race([openDb(), new Promise((_, no) => setTimeout(() => no(new Error('storage did not answer')), 3000))]);
       const keys = await tx(this.db, 'readonly', s => s.getAllKeys());
       for (const k of keys) { const b = await tx(this.db, 'readonly', s => s.get(k)); if (b) this.setLocal(k, b); }
     } catch (e) { console.warn('Files will not be kept between visits:', e); }

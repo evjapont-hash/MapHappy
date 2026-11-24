@@ -77,6 +77,25 @@ artwork from any commercial product and is not affiliated with one.
   can be moved or shared, atomic saves, autosave and crash recovery, and an unsaved-changes prompt.
 - Missing media never blocks opening a project: it becomes a placeholder you can relink.
 
+## Web editor
+
+`web/editor.html` is MapHappy in the browser, at `https://<user>.github.io/MapHappy/editor.html` (linked from
+the published page). Plain JavaScript and WebGL 2, drawing with the same renderer and shaders as the player:
+
+- **Surfaces**: quads, circles, triangles, lines, freeform polygons and 3D objects (built-in or your OBJ), warped
+  by dragging their corners on the stage; an *Edit input region* view picks which part of the picture they show.
+- **Inspector** with every parameter (appearance, transform, picture, colour, line width, 3D view, and the
+  lighting: Unlit / Phong / Blinn-Phong / Toon, ambient, sun, point light, spotlight, material), and masks.
+- **Media**: generators (test card, grid, text, solid colour, gradient, strobe, lines) with all their settings;
+  your song (MP3/WAV, with automatic tempo detection), videos (MP4/WebM) and OBJ models.
+- **Timeline**: the song's waveform and beat grid; ◆ next to any setting sets a keyframe at the playhead, and once a
+  setting is animated, changing it adds keyframes. Drag keyframes (they snap to beats and markers), double-click a
+  row to add one, right-click for Smooth / Linear / Hold or delete. Undo / redo for everything.
+- **Presets** on the keys 1–9 and 0, played live (Live mode), as on the desktop.
+- Work is **autosaved in the browser**, files included. *Save* downloads the `.maphappy` project (it opens in the
+  desktop app too); **Download for the web** gives a `.zip` of the show and its files: unzip it into the
+  repository's `web/` folder (replacing `web/show`), commit and push, and the published page plays it.
+
 ## Web player
 
 `web/` is a player for MapHappy shows that runs in any browser: plain JavaScript and WebGL 2, no libraries

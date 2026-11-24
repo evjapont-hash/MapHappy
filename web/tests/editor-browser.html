@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MapHappy web editor: browser tests</title>
+<!-- Drives the real editor (in the frame below) with clicks, drags and key presses, and checks what happens.
+     Results appear below and in the page title ("PASSED n" / "FAILED n"). CI runs it in headless Chrome. -->
+<style>body { margin: 0; font: 13px monospace; } iframe { width: 1500px; height: 900px; border: 0; display: block; }</style>
+<pre id="out">running...</pre>
+<iframe id="ed" src="../editor.html?test"></iframe>
+<script type="module" src="editor-browser-test.js"></script>

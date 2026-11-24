@@ -106,3 +106,16 @@ test('the zip writer makes a real .zip (checked with Python)', () => {
     assert.ok(out.includes("('show/music/\\xe9.bin', 4)") && out.includes('{"a":1}'), out);
   });
 });
+
+test('tempo detection finds the demo song\'s 120 BPM and its first beat', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { detectBeats } = await import('../js/beat.js');
+  const b = readFileSync(new URL('../show/music/demo-beat.wav', import.meta.url));
+  const rate = b.readUInt32LE(24), data = b.subarray(44), x = new Float32Array(data.length / 2);
+  for (let i = 0; i < x.length; i++) x[i] = data.readInt16LE(i * 2) / 32768;
+  const r = detectBeats(x, rate);
+  near(r.bpm, 120, 0.05);
+  const beat = 60 / r.bpm, err = Math.min(r.offset % beat, beat - (r.offset % beat));   // the beats land on 0, 0.5, 1, ...
+  assert.ok(err < 0.03, `first beat off by ${err}`);
+  assert.equal(detectBeats(new Float32Array(1000), rate).bpm, 0);                        // too short: no tempo
+});

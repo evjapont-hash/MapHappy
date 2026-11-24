@@ -154,7 +154,8 @@ export function removeTrack(show, track) { show.timeline.tracks = show.timeline.
 export function trackLabel(show, track) {
   if (track.kind === 'audio') return track.name || 'Audio';
   const p = parsePath(track.path), s = p && show.surfaces.find(x => x.id === p.id), d = p && PARAMS.get(p.key);
-  return `${s ? s.name : '?'} · ${d ? d.label : p ? p.key : track.path}`;
+  const what = d ? (['Sun', 'Point light', 'Spotlight', 'Material'].includes(d.group) ? `${d.group} ${d.label}` : d.label) : p ? p.key : track.path;
+  return `${s ? s.name : '?'} · ${what}`;                         // e.g. "Cube · Point light X", "Cube · Turn Y"
 }
 
 // ---------------------------------------------------------------- songs and markers
