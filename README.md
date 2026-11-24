@@ -58,6 +58,14 @@ artwork from any commercial product and is not affiliated with one.
 - Snapping to beats, markers, clip edges and the playhead. Tap **M** while the music plays to drop
   markers. Split and trim audio clips.
 
+**Live performance (busking)**
+- Not every show is pre-programmed: **Live mode** (the Live button or F5) turns the bottom of the window into
+  ten preset pads. **Shift + 1..9 / 0** stores the current look (every surface's parameters and media, and
+  which folders are visible) on that key; **1..9 / 0** plays it back, as a cut or a smooth cross-fade with a
+  fade time per preset. Pads can also be clicked, renamed and cleared, and presets are saved with the project.
+- The number keys only play presets in Live mode, and never while you are typing, so nothing fires by accident.
+  A timeline that is playing keeps control of the parameters it animates.
+
 **Show control**
 - A **projector output window**: borderless and sized exactly to a chosen display, sharing the
   editor's GPU textures (no copying). Fit or Stretch scaling, selectable resolution, a blackout
@@ -84,6 +92,9 @@ artwork from any commercial product and is not affiliated with one.
 | M | Drop a marker at the playhead |
 | B | Blackout the projector output |
 | F11 | Show / hide the projector output |
+| F5 | Live mode on / off |
+| 1..9, 0 (Live mode) | Play the preset on that key (top row or keypad) |
+| Shift + 1..9, 0 (Live mode) | Store the current look on that key |
 | Ctrl+N / O / S, Ctrl+Shift+S | New / Open / Save / Save As |
 | Delete | Delete the selected keyframe or clip |
 | Double-click a freeform or polygon-mask edge / right-click a point | Add / delete a point |

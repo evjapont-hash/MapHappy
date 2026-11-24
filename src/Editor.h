@@ -4,6 +4,7 @@
 #include "FileBrowser.h"
 #include "OutputState.h"
 #include "ProjectIO.h"
+#include "Presets.h"
 #include "GLUtil.h"
 #include "Project.h"
 #include "imgui.h"
@@ -60,6 +61,26 @@ public:
 
     const ConductorPanel& conductor() const { return conductor_; }
 
+    // ---- live performance (busking): the number keys play presets
+    bool liveMode() const { return liveMode_; }
+    void setLiveMode(bool on) { liveMode_ = on; }
+    const PresetPlayer& presetPlayer() const { return player_; }
+    // Stores the current look in a slot (0..9; key 1..9, 0), keeping its name and fade time if it had them.
+    void storePreset(int slot) {
+        if (slot < 0 || slot >= kPresetSlots) return;
+        Preset& old = proj_.presets[slot];
+        const std::string name = old.used ? old.name : "Preset " + std::to_string(presetKeyDigit(slot));
+        old = capturePreset(proj_, name, old.used ? old.fade : 0.5f);
+        toast("Stored \"" + name + "\" on key " + std::to_string(presetKeyDigit(slot)));
+    }
+    // Plays the preset in a slot (cut or cross-fade). Returns false for an empty slot.
+    bool recallPreset(int slot) {
+        if (slot < 0 || slot >= kPresetSlots) return false;
+        if (!proj_.presets[slot].used) { toast("Key " + std::to_string(presetKeyDigit(slot)) + " has no preset yet: Shift+" + std::to_string(presetKeyDigit(slot)) + " stores the current look"); return false; }
+        player_.start(proj_, proj_.presets[slot], slot);
+        return true;
+    }
+
     // Called when a file is dropped on the window (or chosen in the file dialog).
     void onFileDropped(const std::string& path) {
         if (lowerExtension(path) == "maphappy") requestOpenFile(path);
@@ -106,6 +127,7 @@ public:
     void drawUI() {
         rects_.clear();
         proj_.syncLines();
+        player_.update(proj_, ImGui::GetIO().DeltaTime);              // a preset cross-fading in
         pollAudio();
         tickProjectState();
         const float menuH = drawMenuBar();
@@ -135,7 +157,13 @@ public:
             drawStagePanel(ImVec2(centerX, centerY), ImVec2(centerW, centerH));
         }
 
-        conductor_.draw(ImVec2(centerX, centerY + centerH), ImVec2(centerW, bottomH));
+        if (liveMode_) {                                              // the preset pads, with the Conductor's transport bar below
+            const float padH = std::max(70.0f, bottomH - 64.0f);
+            drawPresetPad(ImVec2(centerX, centerY + centerH), ImVec2(centerW, padH));
+            conductor_.draw(ImVec2(centerX, centerY + centerH + padH), ImVec2(centerW, bottomH - padH));
+        } else {
+            conductor_.draw(ImVec2(centerX, centerY + centerH), ImVec2(centerW, bottomH));
+        }
         drawDialogs();
     }
 
@@ -550,6 +578,55 @@ private:
         if (remove >= 0) { s.masks.erase(s.masks.begin() + remove); selectedMask_ = -1; }
     }
 
+    // ------------------------------------------------------------------ live preset pads
+    void drawPresetPad(ImVec2 pos, ImVec2 size) {
+        ImGui::SetNextWindowPos(pos);
+        ImGui::SetNextWindowSize(size);
+        ImGui::Begin("Live presets", nullptr, kPanel | ImGuiWindowFlags_NoScrollbar);
+        ImGui::TextDisabled("Keys 1-9 and 0 play a preset.  Shift + key stores the current look.  Right-click a pad to rename it, set its fade or clear it.");
+        const float gap = 6.0f;
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const float w = std::max(40.0f, (avail.x - gap * (kPresetSlots - 1)) / kPresetSlots), h = std::max(36.0f, avail.y - 2.0f);
+        for (int slot = 0; slot < kPresetSlots; slot++) {
+            Preset& pr = proj_.presets[slot];
+            const int key = presetKeyDigit(slot);
+            const bool active = player_.activeSlot() == slot && pr.used;
+            ImGui::PushID(slot);
+            if (slot > 0) ImGui::SameLine(0, gap);
+            int pushed = 0;
+            if (active)       { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.62f, 0.66f, 1.0f)); pushed++; }
+            else if (pr.used) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.17f, 0.33f, 0.37f, 1.0f)); pushed++; }
+            else              { ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]); pushed++; }   // empty: dimmed
+            const std::string label = std::to_string(key) + "\n" + (pr.used ? pr.name : std::string("(empty)"));
+            const bool clicked = ImGui::Button(label.c_str(), ImVec2(w, h));
+            ImGui::PopStyleColor(pushed);
+            recordRect("pad:" + std::to_string(key));
+            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            if (active && player_.fading())                             // how far the cross-fade has got
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x, b.y - 4), ImVec2(a.x + (b.x - a.x) * player_.progress(), b.y), kAccent);
+            if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("##padctx"))
+                ImGui::SetTooltip(pr.used ? "Click or press %d to play (fade %.1f s)" : "Click or press Shift+%d to store the current look here", key, (double)pr.fade);
+            if (clicked) { if (pr.used) recallPreset(slot); else storePreset(slot); }
+            if (ImGui::BeginPopupContextItem("##padctx")) {
+                if (ImGui::MenuItem("Store the current look here", ("Shift+" + std::to_string(key)).c_str())) storePreset(slot);
+                if (pr.used) {
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%s", pr.name.c_str());
+                    ImGui::SetNextItemWidth(160);
+                    if (ImGui::InputText("Name##preset", buf, sizeof(buf)) && buf[0]) pr.name = buf;
+                    ImGui::SetNextItemWidth(160);
+                    ImGui::SliderFloat("Fade##preset", &pr.fade, 0.0f, 10.0f, pr.fade <= 0.0f ? "cut" : "%.1f s");
+                    recordRect("slider:presetFade");
+                    if (ImGui::MenuItem("Play")) recallPreset(slot);
+                    if (ImGui::MenuItem("Clear")) { pr = Preset(); if (player_.activeSlot() == slot) player_.reset(); }
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+        }
+        ImGui::End();
+    }
+
     // ------------------------------------------------------------------ toolbar
     void drawToolbar(ImVec2 pos, float width, float height) {
         ImGui::SetNextWindowPos(pos);
@@ -569,6 +646,13 @@ private:
         if (tabButton("Input", viewMode_ == 1)) viewMode_ = 1;
         ImGui::SameLine();
         if (tabButton("Stage", viewMode_ == 2)) viewMode_ = 2;
+        ImGui::SameLine(0, 40);
+        const bool wasLive = liveMode_;                                 // (the click below may change it)
+        if (wasLive) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.80f, 0.20f, 0.30f, 1.0f));
+        if (ImGui::Button(wasLive ? "LIVE" : "Live", ImVec2(86, 0))) liveMode_ = !liveMode_;
+        recordRect("button:Live");
+        if (wasLive) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Live performance mode (F5): the number keys 1-9 and 0 play your presets");
         if (out_) {
             ImGui::SameLine(std::max(width - 90.0f - 214.0f, 0.0f));
             const bool live = out_->isOpen;
@@ -1096,6 +1180,13 @@ private:
             if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) toggleOutput();
             if (!io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_B, false)) out_->blackout = !out_->blackout;
         }
+        if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) liveMode_ = !liveMode_;
+        if (liveMode_ && !io.KeyCtrl && !io.KeyAlt) {                  // 1..9, 0 (top row or keypad) play; with Shift they store
+            for (int d = 0; d <= 9; d++) {
+                if (!ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_0 + d), false) && !ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_Keypad0 + d), false)) continue;
+                if (io.KeyShift) storePreset(presetSlotForDigit(d)); else recallPreset(presetSlotForDigit(d));
+            }
+        }
         if (!io.KeyCtrl) return;
         if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) openSaveAs(); else saveProject(); }
         else if (ImGui::IsKeyPressed(ImGuiKey_O, false)) openOpenDialog();
@@ -1183,7 +1274,7 @@ private:
         deferred_ = a; deferredPath_ = path;
     }
 
-    void resetUiAfterLoad() { conductor_.resetSelection(); selectedMediaId_ = 0; selectedFolderId_ = 0; selectedMask_ = -1; status_.clear(); }
+    void resetUiAfterLoad() { player_.reset(); conductor_.resetSelection(); selectedMediaId_ = 0; selectedFolderId_ = 0; selectedMask_ = -1; status_.clear(); }
 
     void newProject() {
         proj_.resetToEmpty();
@@ -1542,7 +1633,9 @@ private:
     int           viewMode_ = 0;          // 0 = both, 1 = input only, 2 = stage only
     int           selectedMediaId_ = 0;
     int           selectedFolderId_ = 0, lastSelectedSurface_ = 0;
-    int           selectedMask_ = -1;                               // index into the selected surface's masks   // a selected folder shows the folder inspector
+    int           selectedMask_ = -1;                               // index into the selected surface's masks
+    bool          liveMode_ = false;                                // number keys play presets
+    PresetPlayer  player_;   // a selected folder shows the folder inspector
     std::vector<ListOp> listOps_;
     char          pathBuf_[512];
     std::string   status_;

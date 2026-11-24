@@ -4,6 +4,8 @@
 #include "Surface.h"
 #include "Timeline.h"
 #include <algorithm>
+#include <array>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -17,11 +19,27 @@ struct Folder {
     bool        open = true;          // expanded in the list
 };
 
+// A look to recall live (see Presets.h): every surface's parameters and media, and which folders are visible.
+// Ten slots, played from the keys 1..9 and 0 in Live mode.
+constexpr int kPresetSlots = 10;
+struct PresetSurface { int id = 0; int mediaId = 0; std::map<std::string, float> values; };
+struct Preset {
+    bool        used = false;
+    std::string name;
+    float       fade = 0.5f;                          // seconds to cross-fade into it (0 = cut)
+    std::vector<PresetSurface> surfaces;
+    std::vector<std::pair<int, bool>> folders;        // folder id, visible
+};
+// Slot 0..9 <-> the key that plays it: 1, 2, ... 9, then 0 (the order of the keys on a keyboard).
+inline int presetKeyDigit(int slot) { return slot == 9 ? 0 : slot + 1; }
+inline int presetSlotForDigit(int digit) { return digit == 0 ? 9 : digit - 1; }
+
 // Everything that makes up a show's visuals. This is what we will save and load.
 struct Project {
     MediaPool            media;
     std::vector<Surface> surfaces;            // index 0 = front-most, like the list in the UI
     std::vector<Folder>  folders;             // in the order they are listed
+    std::array<Preset, kPresetSlots> presets; // live presets, played from the number keys
     int selectedSurfaceId = 0;                // 0 = nothing selected
     int outW = 1920, outH = 1080;             // stage (projector) resolution
 
@@ -193,6 +211,7 @@ struct Project {
     void resetToEmpty() {
         surfaces.clear();
         folders.clear();
+        presets = {};
         nextFolderId_ = 1;
         selectedSurfaceId = 0;
         media.clearAllButPattern();

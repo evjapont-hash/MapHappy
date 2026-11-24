@@ -124,6 +124,22 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
     }
     j["folders"] = folders;
 
+    // live presets (only the slots in use)
+    json presets = json::array();
+    for (int slot = 0; slot < kPresetSlots; slot++) {
+        const Preset& pr = p.presets[slot];
+        if (!pr.used) continue;
+        json ss = json::array(), fs = json::array();
+        for (const PresetSurface& ps : pr.surfaces) {
+            json vals = json::object();
+            for (const auto& kv : ps.values) vals[kv.first] = kv.second;
+            ss.push_back({{"id", ps.id}, {"media", ps.mediaId}, {"values", vals}});
+        }
+        for (const auto& fv : pr.folders) fs.push_back({{"id", fv.first}, {"visible", fv.second}});
+        presets.push_back({{"slot", slot}, {"key", presetKeyDigit(slot)}, {"name", pr.name}, {"fade", pr.fade}, {"surfaces", ss}, {"folders", fs}});
+    }
+    j["presets"] = presets;
+
     // audio assets (the sound itself is re-read from the file; we keep the tempo analysis, which may have been corrected by hand)
     json assets = json::array();
     for (const AudioAsset& a : p.audioAssets) {
@@ -505,6 +521,38 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
     }
     p.surfaces = surfaces;
     p.folders = folders;
+    if (j.contains("presets") && j["presets"].is_array()) {
+        for (const json& o : j["presets"]) {
+            if (!o.is_object()) continue;
+            const int slot = get<int>(o, "slot", -1);
+            if (slot < 0 || slot >= kPresetSlots || p.presets[slot].used) { warn("Skipped a live preset with a bad or repeated slot"); continue; }
+            Preset pr;
+            pr.used = true;
+            pr.name = get<std::string>(o, "name", "Preset " + std::to_string(presetKeyDigit(slot)));
+            pr.fade = get<float>(o, "fade", 0.5f);
+            pr.fade = std::isfinite(pr.fade) ? std::max(0.0f, std::min(30.0f, pr.fade)) : 0.5f;
+            if (o.contains("surfaces") && o["surfaces"].is_array())
+                for (const json& sj : o["surfaces"]) {
+                    if (!sj.is_object()) continue;
+                    PresetSurface ps;
+                    ps.id = get<int>(sj, "id", 0); ps.mediaId = get<int>(sj, "media", 0);
+                    if (ps.id <= 0) continue;
+                    if (sj.contains("values") && sj["values"].is_object())
+                        for (auto it = sj["values"].begin(); it != sj["values"].end(); ++it) {
+                            if (!findParamDef(it.key())) continue;                   // a parameter this version doesn't have
+                            float v = 0.0f;
+                            if (it->is_boolean()) v = it->get<bool>() ? 1.0f : 0.0f;
+                            else if (it->is_number()) v = it->get<float>();
+                            else continue;
+                            if (std::isfinite(v)) ps.values[it.key()] = v;
+                        }
+                    pr.surfaces.push_back(ps);
+                }
+            if (o.contains("folders") && o["folders"].is_array())
+                for (const json& fj : o["folders"]) if (fj.is_object() && get<int>(fj, "id", 0) > 0) pr.folders.push_back({get<int>(fj, "id", 0), get<bool>(fj, "visible", true)});
+            p.presets[slot] = pr;
+        }
+    }
     p.setNextFolderId(std::max(maxFolder + 1, j.contains("counters") && j["counters"].is_object() ? get<int>(j["counters"], "folder", 1) : 1));
     for (Surface& s : p.surfaces) syncLineQuad(s, (float)p.outW / (float)p.outH);
     p.selectedSurfaceId = surfaceIds.count(get<int>(j, "selectedSurface", 0)) ? get<int>(j, "selectedSurface", 0) : (surfaces.empty() ? 0 : surfaces.front().id);
