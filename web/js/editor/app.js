@@ -8,6 +8,7 @@ import { ShowClock } from '../clock.js';
 import { FileStore, uniquePath, makeZip, download } from '../files.js';
 import { detectBeats } from '../beat.js';
 import * as ops from '../editor-ops.js';
+import { splitAudioClip, deleteAudioClip } from '../editor-ops.js';
 import { StageView } from './stage.js';
 import { TimelineView } from './timeline-view.js';
 import { Panels, AUDIO_EXT, VIDEO_EXT, OBJ_EXT } from './panels.js';
@@ -121,6 +122,19 @@ class Editor {
     this.clock.toggle();
   }
   seek(t) { this.clock.seek(Math.max(0, t)); }
+
+  // Splits the selected song clip (or the one under the playhead) at the playhead.
+  splitSong() {
+    const t = this.clock.time;
+    let target = this.sel.audio;
+    if (!target || t <= target.clip.start || t >= target.clip.start + target.clip.duration) {
+      target = null;
+      for (const tr of this.show.timeline.tracks) if (tr.kind === 'audio') for (const c of tr.audioClips) if (t > c.start && t < c.start + c.duration) target = { track: tr, clip: c };
+    }
+    if (!target) { this.status('Put the playhead inside a song clip to split it there.'); return; }
+    const second = splitAudioClip(this.show, target.track, target.clip, t);
+    if (second) { this.sel.audio = { track: target.track, clip: second }; this.clock.playing && (this.clock.pause(), this.clock.play()); this.commit(); }
+  }
 
   async detectTempo(assetId) {
     await this.ensureAudio();
@@ -288,6 +302,7 @@ on('present', () => present(true));
 on('viewInput', () => { ed.stageView.mode = ed.stageView.mode === 'input' ? 'output' : 'input'; $('viewInput').classList.toggle('on', ed.stageView.mode === 'input'); });
 $('snap').addEventListener('change', e => { ed.snap = e.target.checked; });
 on('marker', () => { ops.addMarker(ed.show, ed.clock.time); ed.commit(); });
+on('split', () => ed.splitSong());
 $('outsize').addEventListener('change', e => { const [w, h] = e.target.value.split('x').map(Number); ed.show.outW = w; ed.show.outH = h; ed.commit(); ed.load(JSON.parse(ed.snapshot), { keepMedia: true, resetHistory: false }); });
 $('help').addEventListener('click', () => { $('helpbox').hidden = !$('helpbox').hidden; });
 
@@ -323,6 +338,11 @@ addEventListener('keydown', e => {
   else if (e.code === 'ArrowRight') ed.seek(ed.clock.time + (e.shiftKey ? 1 : 1 / 30));
   else if (k === 'm') { ops.addMarker(ed.show, ed.clock.time); ed.commit(); }
   else if (k === 'b') ed.blackout = !ed.blackout;
+  else if (k === 's') ed.splitSong();
+  else if ((e.code === 'Delete' || e.code === 'Backspace') && ed.sel.audio && !ed.sel.key) {
+    deleteAudioClip(ed.show, ed.sel.audio.track, ed.sel.audio.clip); ed.sel.audio = null; ed.commit();
+    if (ed.clock.playing) { ed.clock.pause(); ed.clock.play(); }
+  }
   else if ((e.code === 'Delete' || e.code === 'Backspace') && ed.sel.key) {
     const s = ed.sel.key; ops.deleteKey(ed.show, s.track, s.clip, s.index); ed.sel.key = null; ed.commit(); ed.panels.render();
   } else if (ed.live && /^(Digit|Numpad)\d$/.test(e.code)) {

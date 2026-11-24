@@ -2,7 +2,7 @@
 // parameter with its keyframes. Click or drag the ruler to move the playhead; drag a keyframe to move it (it snaps
 // to beats and markers); double-click a row to add a keyframe; right-click one for its curve or to delete it.
 // Mouse wheel zooms, Shift + wheel scrolls.
-import { keysOf, moveKey, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack } from '../editor-ops.js';
+import { keysOf, moveKey, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack, moveAudioClip, trimAudioClip } from '../editor-ops.js';
 import { evaluateTrack } from '../timeline.js';
 import { parsePath } from '../params.js';
 import { el } from './ui.js';
@@ -82,6 +82,8 @@ export class TimelineView {
         for (const clip of t.audioClips) {
           const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration);
           c.fillStyle = 'rgba(132,196,205,0.12)'; c.fillRect(x0, r.y + 2, x1 - x0, r.h - 4);
+          if (this.ed.sel.audio?.clip === clip) { c.strokeStyle = C.accent; c.lineWidth = 2; c.strokeRect(x0 + 1, r.y + 3, Math.max(2, x1 - x0 - 2), r.h - 6); }
+          c.fillStyle = 'rgba(132,196,205,0.35)'; c.fillRect(x0, r.y + 2, 3, r.h - 4); c.fillRect(x1 - 3, r.y + 2, 3, r.h - 4);   // the trim handles
           const p = this.peaksFor(clip.asset), mid = r.y + r.h / 2, amp = r.h / 2 - 4;
           if (p) {
             c.fillStyle = C.wave;
@@ -138,6 +140,19 @@ export class TimelineView {
   surfaceOf(t) { const p = parsePath(t.path); return p ? p.id : 0; }
   isSelected(t, k) { const s = this.ed.sel.key; return s && s.track === t && s.clip === k.clip && s.index === k.index; }
 
+  // A song clip under the point, and which part: 'start' / 'end' edge (trim) or 'body' (move).
+  audioAt(pt) {
+    for (const r of this.rows()) {
+      if (r.track.kind !== 'audio' || pt.y < r.y || pt.y >= r.y + r.h) continue;
+      for (const clip of r.track.audioClips) {
+        const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration);
+        if (pt.x < x0 - 4 || pt.x > x1 + 4) continue;
+        return { track: r.track, clip, part: pt.x < x0 + 6 ? 'start' : pt.x > x1 - 6 ? 'end' : 'body' };
+      }
+    }
+    return null;
+  }
+
   keyAt(pt) {
     for (const r of this.rows()) {
       if (r.track.kind !== 'param' || pt.y < r.y || pt.y >= r.y + r.h) continue;
@@ -161,17 +176,32 @@ export class TimelineView {
       if (sid) ed.select(sid);
       return;
     }
+    const a = this.audioAt(p);
+    if (a && e.button === 0) {
+      ed.sel.audio = { track: a.track, clip: a.clip }; ed.selectKey(null);
+      this.drag = { kind: a.part === 'body' ? 'audioMove' : `trim-${a.part}`, grab: this.tOf(p.x) - a.clip.start };
+      return;
+    }
     const { key } = this.keyAt(p);
     if (key && e.button === 0) {
       ed.selectKey({ track: this.keyAt(p).row.track, clip: key.clip, index: key.index });
       this.drag = { kind: 'key', grab: this.tOf(p.x) - key.time };
       return;
     }
-    if (e.button === 0) { ed.selectKey(null); this.drag = { kind: 'scrub' }; ed.seek(this.tOf(p.x)); }
+    if (e.button === 0) { ed.selectKey(null); ed.sel.audio = null; this.drag = { kind: 'scrub' }; ed.seek(this.tOf(p.x)); }
   }
   move(e) {
-    if (!this.drag) return;
     const p = this.local(e), ed = this.ed;
+    if (!this.drag) { const a = this.audioAt(p); this.canvas.style.cursor = a ? (a.part === 'body' ? 'grab' : 'ew-resize') : 'default'; return; }
+    const sa = ed.sel.audio;
+    if (sa && (this.drag.kind === 'audioMove' || this.drag.kind.startsWith('trim-'))) {
+      let t = this.tOf(p.x) - (this.drag.kind === 'audioMove' ? this.drag.grab : 0);
+      if (ed.snap && !e.altKey) t = snapTime(ed.show, t, 8 / this.pps);
+      if (this.drag.kind === 'audioMove') moveAudioClip(ed.show, sa.track, sa.clip, t);
+      else trimAudioClip(ed.show, sa.track, sa.clip, this.drag.kind.slice(5), t, ed.clock.buffers.get(sa.clip.asset)?.duration ?? Infinity);
+      this.drag.moved = true; ed.touched();
+      return;
+    }
     if (this.drag.kind === 'scrub') { ed.seek(this.tOf(Math.max(LABEL_W, p.x))); return; }
     const s = ed.sel.key;
     if (this.drag.kind === 'key' && s) {
@@ -183,7 +213,13 @@ export class TimelineView {
       ed.touched();
     }
   }
-  up() { if (this.drag?.moved) this.ed.commit(); this.drag = null; }
+  up() {
+    if (this.drag?.moved) {
+      this.ed.commit();
+      if ((this.drag.kind === 'audioMove' || this.drag.kind.startsWith('trim-')) && this.ed.clock.playing) { this.ed.clock.pause(); this.ed.clock.play(); }   // the sound follows the edit
+    }
+    this.drag = null;
+  }
 
   // Double-click a parameter row: a keyframe there, holding the value the track has at that time.
   dbl(e) {

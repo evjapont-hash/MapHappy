@@ -139,3 +139,26 @@ test('folders: nesting, no loops, hiding passes down, deleting keeps the content
   assert.deepEqual(writeShow(again), j); assert.equal(again.folders.size, 1);
   assert.ok(ops.addFolder(show) > inner);
 });
+
+test('song clips: move, trim, split and delete, never overlapping', () => {
+  const show = emptyShow();
+  ops.addSong(show, 'a.mp3', 'music/a.mp3', 10);
+  ops.addSong(show, 'b.mp3', 'music/b.mp3', 10);
+  const track = show.timeline.tracks.find(t => t.kind === 'audio'), [a, b] = track.audioClips;
+  ops.moveAudioClip(show, track, b, 5);
+  near(b.start, 10);                                                       // can't slide back over the first clip
+  ops.trimAudioClip(show, track, a, 'start', 2, 10);
+  near(a.start, 2); near(a.offset, 2); near(a.duration, 8);              // the left edge trims the beginning of the song
+  ops.trimAudioClip(show, track, a, 'start', -5, 10);
+  near(a.start, 0); near(a.offset, 0);                                    // ...but not before the song starts
+  ops.trimAudioClip(show, track, a, 'end', 30, 10);
+  near(a.duration, 10);                                                    // nor past its end (or the next clip)
+  ops.trimAudioClip(show, track, a, 'end', 6, 10); near(a.duration, 6);
+  ops.moveAudioClip(show, track, b, 7); near(b.start, 7);                 // room opened up
+  const second = ops.splitAudioClip(show, track, b, 9);
+  assert.ok(second); near(b.duration, 2); near(second.start, 9); near(second.offset, 2); near(second.duration, 8);
+  assert.equal(ops.splitAudioClip(show, track, b, 50), null);
+  assert.equal(track.audioClips.length, 3); assert.notEqual(second.id, b.id);
+  ops.deleteAudioClip(show, track, second); ops.deleteAudioClip(show, track, b); ops.deleteAudioClip(show, track, a);
+  assert.equal(show.timeline.tracks.length, 0);
+});

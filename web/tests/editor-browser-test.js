@@ -106,6 +106,24 @@ try {
   doc.body.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true })); await frames(1);
   expect('Delete removes the selected keyframe', track.clips[0].keys.length === 1);
 
+  // ---- song clips: move, trim, split, delete
+  { const songId = (await import('../js/editor-ops.js')).addSong(ed.show, 'beat.wav', 'music/beat.wav', 8);
+    ed.commit(); await frames(2);
+    const atrack = ed.show.timeline.tracks.find(t => t.kind === 'audio'), clip = atrack.audioClips.find(c => c.asset === songId);
+    const arow = () => tv.rows().find(r => r.track === atrack), y = () => arow().y + arow().h / 2;
+    ed.snap = false;
+    await drag(tl, { x: tv.xOf(clip.start + 4), y: y() }, { x: tv.xOf(clip.start + 5), y: y() });
+    expect('dragging a song clip moves it along the timeline', near(clip.start, 1, 0.05) && clip.offset === 0);
+    await drag(tl, { x: tv.xOf(clip.start) + 2, y: y() }, { x: tv.xOf(2), y: y() });
+    expect('dragging its left end trims the start of the song', near(clip.start, 2, 0.05) && near(clip.offset, 1, 0.05) && near(clip.duration, 7, 0.05));
+    await drag(tl, { x: tv.xOf(clip.start + clip.duration) - 2, y: y() }, { x: tv.xOf(6), y: y() });
+    expect('dragging its right end trims the end', near(clip.duration, 4, 0.05));
+    ed.seek(4); doc.body.dispatchEvent(new win.KeyboardEvent('keydown', { key: 's', code: 'KeyS', bubbles: true })); await frames(1);
+    expect('S splits it at the playhead', atrack.audioClips.length === 2 && near(clip.duration, 2, 0.05) && near(atrack.audioClips[1].start, 4, 0.05) && near(atrack.audioClips[1].offset, 3, 0.05));
+    doc.body.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true })); await frames(1);
+    expect('Delete removes the selected song clip (the second part)', atrack.audioClips.length === 1 && atrack.audioClips[0] === clip);
+    ed.snap = true; }
+
   // ---- presets and live mode
   ed.selected().p.hue = 0; ed.commit();
   click(doc.querySelector('.tabs button[data-tab="presets"]')); await frames(1);

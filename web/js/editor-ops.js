@@ -251,3 +251,42 @@ export function removeFolder(show, id) {
   for (const s of show.surfaces) if (s.folder === id) s.folder = f.parent;
   show.folders.delete(id);
 }
+
+// ---------------------------------------------------------------- song clips (as the desktop app's audio clips)
+// Clips on a track never overlap: each one can move or grow only up to its neighbours.
+function audioNeighbours(track, clip) {
+  const list = [...track.audioClips].sort((a, b) => a.start - b.start), i = list.indexOf(clip);
+  return { prevEnd: i > 0 ? list[i - 1].start + list[i - 1].duration : 0, nextStart: i + 1 < list.length ? list[i + 1].start : Infinity };
+}
+export function moveAudioClip(show, track, clip, start) {
+  const { prevEnd, nextStart } = audioNeighbours(track, clip);
+  clip.start = Math.max(prevEnd, Math.min(nextStart - clip.duration, start));
+  show.timeline.length = Math.max(show.timeline.length, clip.start + clip.duration);
+}
+// Moves one edge of a clip to a timeline time. songLength = the whole song's length (a clip can't run past it).
+export function trimAudioClip(show, track, clip, edge, time, songLength = Infinity) {
+  const { prevEnd, nextStart } = audioNeighbours(track, clip), min = 1 / 60;
+  if (edge === 'start') {
+    const end = clip.start + clip.duration;
+    const t = Math.max(prevEnd, clip.start - clip.offset, Math.min(end - min, time));   // can't reach before the song's own start
+    clip.offset += t - clip.start; clip.duration = end - t; clip.start = t;
+  } else {
+    const t = Math.min(nextStart, clip.start + songLength - clip.offset, Math.max(clip.start + min, time));
+    clip.duration = t - clip.start;
+  }
+  show.timeline.length = Math.max(show.timeline.length, clip.start + clip.duration);
+}
+// Splits a clip in two at a timeline time; returns the second part (or null if the time isn't inside it).
+export function splitAudioClip(show, track, clip, time) {
+  if (time <= clip.start + 1 / 60 || time >= clip.start + clip.duration - 1 / 60) return null;
+  const tl = show.timeline, cut = time - clip.start;
+  const second = { ...clip, id: tl.counters.clip++, start: time, offset: clip.offset + cut, duration: clip.duration - cut, name: `${clip.name} (2)` };
+  clip.duration = cut;
+  track.audioClips.push(second);
+  track.audioClips.sort((a, b) => a.start - b.start);
+  return second;
+}
+export function deleteAudioClip(show, track, clip) {
+  track.audioClips = track.audioClips.filter(c => c !== clip);
+  if (!track.audioClips.length) show.timeline.tracks = show.timeline.tracks.filter(t => t !== track);
+}

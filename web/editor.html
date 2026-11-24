@@ -131,6 +131,7 @@
       <span id="time">0:00.00</span>
       <label class="inline"><input id="snap" type="checkbox" checked> Snap to beats</label>
       <button id="marker" title="Drop a marker at the playhead (M)">+ Marker</button>
+      <button id="split" title="Split the song clip at the playhead (S). Drag a song clip to move it, drag its ends to trim it, Delete removes it.">Split song</button>
       <span class="dim">◆ next to a setting = keyframe at the playhead · double-click a row = keyframe · right-click a keyframe = curve / delete · wheel = zoom</span>
     </div>
     <canvas id="timeline"></canvas>
@@ -150,7 +151,8 @@
   <p class="dim">Your work is autosaved in this browser (files you add too). Save downloads the project file, which also opens in the desktop MapHappy.</p>
   <ul class="dim">
     <li><kbd>Space</kbd> play / pause · <kbd>←</kbd> <kbd>→</kbd> step (Shift: 1 s) · <kbd>Home</kbd> start · <kbd>M</kbd> marker</li>
-    <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Delete</kbd> selected keyframe · <kbd>B</kbd> blackout</li>
+    <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Delete</kbd> selected keyframe or song clip · <kbd>B</kbd> blackout</li>
+    <li>Song clips: drag to move, drag an end to trim, <kbd>S</kbd> splits at the playhead.</li>
     <li>Freeform: double-click an edge to add a point, right-click a point to delete it.</li>
   </ul>
   <button onclick="this.parentElement.hidden = true">Close</button>
