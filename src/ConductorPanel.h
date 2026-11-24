@@ -33,6 +33,7 @@ public:
 
     void selectAudioClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.audioClip = clipId; }
     void resetSelection() { sel_ = Sel{}; drag_ = Drag{}; scrollT_ = 0.0; }
+    void clearSelection() { sel_ = Sel{}; drag_ = Drag{}; ctx_ = Ctx{}; }        // (after undo: what was selected may be gone)
     void selectTrack(int trackId) { sel_ = Sel{}; sel_.track = trackId; }
     void selectClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.clip = clipId; }
     std::function<void(int)> onRelinkAudio;      // asked to find a missing song again (the editor shows the file dialog)

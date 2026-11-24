@@ -231,7 +231,25 @@ bool loadProjectFromFile(Project& p, const std::string& path, LoadReport& report
     return loadProjectFromJson(p, text, pathToUtf8(pathFromUtf8(path).parent_path()), report);
 }
 
-bool loadProjectFromJson(Project& p, const std::string& text, const std::string& baseDir, LoadReport& report) {
+static bool loadJson(Project& p, const std::string& text, const std::string& baseDir, LoadReport& report, bool keepOpen);
+bool loadProjectFromJson(Project& p, const std::string& text, const std::string& baseDir, LoadReport& report) { return loadJson(p, text, baseDir, report, false); }
+
+bool restoreProject(Project& p, const std::string& text, LoadReport& report) {
+    const Transport before = p.transport;
+    const int selected = p.selectedSurfaceId;
+    const std::string status = p.audioStatus; const bool statusIsError = p.audioStatusIsError;
+    if (!loadJson(p, text, "", report, true)) return false;
+    const Transport restored = p.transport;
+    p.transport = before;                                          // the show keeps playing from where it is
+    p.transport.loop = restored.loop;
+    if (restored.avOffset != before.avOffset) { p.transport.avOffset = restored.avOffset; p.transport.seeked = true; }
+    if (p.find(selected)) p.selectedSurfaceId = selected;
+    p.audioStatus = status; p.audioStatusIsError = statusIsError;
+    return true;
+}
+
+// keepOpen = media and songs that are already open in `p` (same id, same file) are used again instead of being reopened
+static bool loadJson(Project& p, const std::string& text, const std::string& baseDir, LoadReport& report, bool keepOpen) {
     json j = json::parse(text, nullptr, /*allow_exceptions*/ false);
     if (j.is_discarded() || !j.is_object()) { report.error = "This isn't a MapHappy project (the file isn't valid JSON)"; return false; }
     if (get<std::string>(j, "format", "") != "maphappy") { report.error = "This isn't a MapHappy project file"; return false; }
@@ -498,12 +516,28 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
     }
 
     // ------------------------------------------------------------------ everything checked: now replace the project
+    std::vector<std::unique_ptr<MediaItem>> openMedia;
+    std::vector<AudioAsset> openAssets;
+    if (keepOpen) { openMedia = p.media.takeAll(); openAssets = std::move(p.audioAssets); }
+    auto reuse = [&](const PMedia& pm) -> int {
+        for (auto& m : openMedia) {
+            if (!m || m->id != pm.id) continue;
+            GeneratorSource* g = m->generator();
+            const bool same = pm.isGen ? (g && g->settings.type == pm.gen.type) : (m->kind == MediaKind::Video && m->path == pm.path);
+            if (!same) continue;
+            if (g) g->settings = pm.gen;
+            m->name = pm.name;
+            return p.media.adopt(std::move(m));
+        }
+        return 0;
+    };
     p.resetToEmpty();
     p.outW = std::max(16, std::min(16384, get<int>(j.value("output", json::object()), "width", 1920)));
     p.outH = std::max(16, std::min(16384, get<int>(j.value("output", json::object()), "height", 1080)));
     if (MediaItem* pat = p.media.find(MediaPool::kPatternId)) { pat->playing = patternPlaying; pat->loop = patternLoop; pat->speed = patternSpeed; }
 
     for (const PMedia& pm : media) {
+        if (const int kept = reuse(pm)) { MediaItem* m = p.media.find(kept); m->playing = pm.playing; m->loop = pm.loop; m->speed = pm.speed; continue; }
         if (pm.isGen) {
             const int id = p.media.addGenerator(pm.gen, pm.id, pm.name);
             if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; m->speed = pm.speed; }
@@ -561,6 +595,13 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
 
     for (size_t i = 0; i < assets.size(); i++) {
         AudioAsset a = assets[i];
+        auto open = std::find_if(openAssets.begin(), openAssets.end(), [&](const AudioAsset& o) { return o.id == a.id && o.path == a.path; });
+        if (open != openAssets.end()) {                                 // the sound is still here; only its name and tempo come from the file
+            AudioAsset kept = std::move(*open);
+            kept.name = a.name; kept.bpm = a.bpm; kept.beatOffset = a.beatOffset;
+            p.audioAssets.push_back(std::move(kept));
+            continue;
+        }
         std::string resolved = resolveStoredPath(base, i < assetRel.size() ? assetRel[i] : "", a.path);
         if (!resolved.empty()) { a.path = resolved; a.loading = true; report.audioToLoad.push_back(a.id); }
         else { a.missing = true; warn("Can't find the song \"" + a.name + "\" (" + a.path + ")"); }

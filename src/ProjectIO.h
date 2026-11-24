@@ -28,6 +28,10 @@ bool loadProjectFromFile(Project& p, const std::string& path, LoadReport& report
 // Same, from JSON text (used by tests and by autosave recovery). `baseDir` is where relative media paths start.
 bool loadProjectFromJson(Project& p, const std::string& text, const std::string& baseDir, LoadReport& report);
 
+// Puts back an earlier state of the same project (undo): `text` is projectToJson(p, ""). Videos and songs that are
+// still used stay open, and playback carries on. Frees textures too, so call it between frames.
+bool restoreProject(Project& p, const std::string& text, LoadReport& report);
+
 // ---- app settings (recent files)
 struct AppSettings {
     std::vector<std::string> recent;       // most recent first, at most 10

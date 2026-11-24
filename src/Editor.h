@@ -7,6 +7,7 @@
 #include "Presets.h"
 #include "GLUtil.h"
 #include "Project.h"
+#include "UndoHistory.h"
 #include "imgui.h"
 #include <algorithm>
 #include <cmath>
@@ -94,6 +95,11 @@ public:
     const std::string& filePath() const { return filePath_; }
     void markClean() { savedSnapshot_ = projectToJson(proj_, filePath_, true); dirty_ = false; }
     void refreshDirtyNow() { dirty_ = projectToJson(proj_, filePath_, true) != savedSnapshot_; }
+    // ---- undo: every finished edit is a step (a whole drag is one)
+    bool canUndo() const { return history_.canUndo(); }
+    bool canRedo() const { return history_.canRedo(); }
+    void undo() { pendingUndo_ = -1; }                              // done between frames (it may free textures): see endFrame()
+    void redo() { pendingUndo_ = +1; }
     bool exitApproved() const { return exitApproved_; }
     void requestExit()  { if (dirty_) askUnsaved(Pending::Exit, ""); else exitApproved_ = true; }
     void requestNew()   { if (dirty_) askUnsaved(Pending::New, ""); else performPending(Pending::New, "", false); }
@@ -188,6 +194,7 @@ public:
         else if (a == Pending::Open) openProjectNow(deferredPath_);
         else if (a == Pending::Exit) exitApproved_ = true;
         if (deferredRecover_) { deferredRecover_ = false; recoverNow(); }
+        if (pendingUndo_) { const int dir = pendingUndo_; pendingUndo_ = 0; stepHistory(dir); }
     }
 
 private:
@@ -1184,6 +1191,15 @@ private:
                 if (ImGui::MenuItem("Exit")) requestExit();
                 ImGui::EndMenu();
             }
+            const bool editMenuOpen = ImGui::BeginMenu("Edit");
+            recordRect("menu:Edit");
+            if (editMenuOpen) {
+                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, canUndo())) undo();
+                recordRect("item:Undo");
+                if (ImGui::MenuItem("Redo", "Ctrl+Y", false, canRedo())) redo();
+                recordRect("item:Redo");
+                ImGui::EndMenu();
+            }
             drawOutputMenu();
             // project name in the middle, a short message (e.g. "Saved") on the right
             std::string name = filePath_.empty() ? std::string("Untitled") : fileNameOf(filePath_);
@@ -1218,17 +1234,48 @@ private:
         if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) openSaveAs(); else saveProject(); }
         else if (ImGui::IsKeyPressed(ImGuiKey_O, false)) openOpenDialog();
         else if (ImGui::IsKeyPressed(ImGuiKey_N, false)) requestNew();
+        else if (ImGui::IsKeyPressed(ImGuiKey_Z, true)) { if (io.KeyShift) redo(); else undo(); }
+        else if (ImGui::IsKeyPressed(ImGuiKey_Y, true)) redo();
     }
 
     // Notices edits, and writes an autosave a minute after the project first has unsaved changes.
     void tickProjectState() {
         const double now = ImGui::GetTime();
-        if (now - lastDirtyCheck_ > 0.5) {
+        const bool busy = editing();
+        if (now - lastDirtyCheck_ > 0.5 || (wasEditing_ && !busy)) {    // twice a second, and as soon as a drag or typing ends
             lastDirtyCheck_ = now;
             dirty_ = projectToJson(proj_, filePath_, true) != savedSnapshot_;
+            if (!busy) history_.commit(snapshot());
         }
+        wasEditing_ = busy;
         if (!dirty_) { lastAutosave_ = now; return; }
         if (now - lastAutosave_ > 60.0) { lastAutosave_ = now; autosaveNow(); }
+    }
+
+    // In the middle of an edit (dragging, typing, a preset fading in)? Then it isn't an undo step yet.
+    bool editing() const { const ImGuiIO& io = ImGui::GetIO(); return io.MouseDown[0] || io.MouseDown[1] || io.WantTextInput || ImGui::IsAnyItemActive() || player_.fading(); }
+    UndoHistory::State snapshot() const { return {projectToJson(proj_, "", true), projectToJson(proj_, "", false)}; }
+    void stepHistory(int dir) {
+        if (editing()) return;
+        history_.commit(snapshot());                                  // an edit made this very moment counts too
+        const UndoHistory::State* s = dir < 0 ? history_.stepBack() : history_.stepForward();
+        if (!s) { toast(dir < 0 ? "Nothing to undo" : "Nothing to redo"); return; }
+        LoadReport rep;
+        if (!restoreProject(proj_, s->full, rep)) { showError("Couldn't undo.\n" + rep.error); return; }
+        player_.reset();
+        conductor_.clearSelection();
+        if (!proj_.media.find(selectedMediaId_)) selectedMediaId_ = 0;
+        if (!proj_.findFolder(selectedFolderId_)) selectedFolderId_ = 0;
+        const Surface* sel = proj_.selected();
+        if (!sel || selectedMask_ >= (int)sel->masks.size()) selectedMask_ = -1;
+        drag_ = Drag{};
+        proj_.media.applyResizes();
+        startAudioReloads(rep.audioToLoad);
+        proj_.syncLines();
+        proj_.timelineDirty = true;
+        history_.restored(projectToJson(proj_, "", true));
+        refreshDirtyNow();
+        toast(dir < 0 ? "Undone" : "Redone");
     }
 
     void toast(const std::string& msg) { toast_ = msg; toastUntil_ = ImGui::GetTime() + 3.0; }
@@ -1301,7 +1348,7 @@ private:
         deferred_ = a; deferredPath_ = path;
     }
 
-    void resetUiAfterLoad() { player_.reset(); conductor_.resetSelection(); selectedMediaId_ = 0; selectedFolderId_ = 0; selectedMask_ = -1; status_.clear(); }
+    void resetUiAfterLoad() { history_.clear(); player_.reset(); conductor_.resetSelection(); selectedMediaId_ = 0; selectedFolderId_ = 0; selectedMask_ = -1; status_.clear(); }
 
     void newProject() {
         proj_.resetToEmpty();
@@ -1683,7 +1730,9 @@ private:
     int           fileTarget_ = 0;
     AppSettings   settings_;
     std::string   filePath_, savedSnapshot_;
-    bool          dirty_ = false, exitApproved_ = false;
+    bool          dirty_ = false, exitApproved_ = false, wasEditing_ = false;
+    UndoHistory   history_;
+    int           pendingUndo_ = 0;                                 // -1 undo, +1 redo, at the end of this frame
     double        lastDirtyCheck_ = 0.0, lastAutosave_ = 0.0, toastUntil_ = 0.0;
     std::string   toast_;
     Pending       pending_ = Pending::None, afterSave_ = Pending::None, deferred_ = Pending::None;

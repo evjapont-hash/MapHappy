@@ -148,6 +148,7 @@ timeline locked to the music, and the live presets on the number keys. Videos pl
 | Ctrl+N / O / S, Ctrl+Shift+S | New / Open / Save / Save As |
 | Delete | Delete the selected keyframe or clip |
 | Double-click a freeform or polygon-mask edge / right-click a point | Add / delete a point |
+| Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | Undo / redo (a whole drag is one step) |
 | Ctrl + wheel, Shift + wheel | Zoom / scroll the timeline |
 | Esc (in the output window) | Close the output window |
 
@@ -257,7 +258,6 @@ MapHappy is [MIT licensed](LICENSE), by Evan Pontrich. The libraries it uses kee
 
 - Cues: short triggerable timelines and a Timeline Player track to fire them from the Conductor
 - Mesh warp and edge blending for multi-projector setups
-- Undo / redo
 - Audio-reactive parameters as an extra track type
 - macOS runtime verification (CI builds it; nobody has run it on a Mac yet)
 
@@ -266,4 +266,3 @@ MapHappy is [MIT licensed](LICENSE), by Evan Pontrich. The libraries it uses kee
 - One projector output window showing the whole stage (no per-output splitting yet).
 - Beat detection can pick half or double the true tempo on some music; the inspector has x2 and /2.
 - Video only (no live inputs such as NDI, Syphon or Spout yet).
-- No undo yet.

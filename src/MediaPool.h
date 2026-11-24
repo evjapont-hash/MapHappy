@@ -123,6 +123,15 @@ public:
         return true;
     }
 
+    // Undo rebuilds the project but keeps what is already open: take everything out, then put back what is still wanted.
+    std::vector<std::unique_ptr<MediaItem>> takeAll() {
+        std::vector<std::unique_ptr<MediaItem>> taken, keep;
+        for (auto& m : items) (m->id == kPatternId ? keep : taken).push_back(std::move(m));
+        items = std::move(keep);
+        return taken;
+    }
+    int adopt(std::unique_ptr<MediaItem> m) { const int id = m->id; ensureNextIdAbove(id); items.push_back(std::move(m)); return id; }
+
     // Forgets everything except the built-in test pattern (used when a project is closed or replaced).
     void clearAllButPattern() {
         items.erase(std::remove_if(items.begin(), items.end(), [](const std::unique_ptr<MediaItem>& m) { return m->id != kPatternId; }), items.end());
