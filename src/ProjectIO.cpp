@@ -99,6 +99,7 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
         o["in"] = jquad(s.in); o["out"] = jquad(s.out);
         if (s.shape == Shape::Line) { o["lineA"] = jv(s.lineA); o["lineB"] = jv(s.lineB); }
         if (s.shape == Shape::Freeform) { json pts = json::array(); for (Vec2 v : s.poly) pts.push_back(jv(v)); o["points"] = pts; }
+        if (s.shape == Shape::Object3D) { o["mesh"] = meshKindKey(s.meshKind); if (s.meshKind == MeshKind::File) putPath(o, "meshPath", s.meshPath, base, haveBase); }
         surfaces.push_back(o);
     }
     j["surfaces"] = surfaces;
@@ -271,6 +272,14 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
                 if (ok) for (const json& pj : o["points"]) { Vec2 v; if (!readPoint(pj, v)) { ok = false; break; } pts.push_back(clampUnit(v)); }
                 if (ok && pts.size() >= 3 && pts.size() <= (size_t)kMaxPolyPoints) s.poly = pts;
                 else warn("\"" + s.name + "\" had an unusable freeform outline; it was reset");
+            }
+            if (s.shape == Shape::Object3D) {
+                s.meshKind = meshKindFromKey(get<std::string>(o, "mesh", "cube"));
+                if (s.meshKind == MeshKind::File) {
+                    const std::string stored = get<std::string>(o, "meshPath", "");
+                    s.meshPath = resolveStoredPath(base, get<std::string>(o, "meshPathRel", ""), stored);
+                    if (s.meshPath.empty()) { s.meshPath = stored; warn("Can't find the model \"" + fileNameOf(stored) + "\" used by \"" + s.name + "\"; it shows a cube until you choose the file again"); }
+                }
             }
             surfaces.push_back(s);
         }

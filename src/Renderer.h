@@ -1,6 +1,9 @@
 #pragma once
 #include "GLUtil.h"
 #include "Project.h"
+#include <algorithm>
+#include <map>
+#include <vector>
 
 // Draws every visible surface into the stage texture.
 //
@@ -102,6 +105,39 @@ void main() {
 }
 )GLSL";
 
+// The 3D pass: a model wearing the media, drawn with depth into the surface's own texture (transparent around it).
+inline constexpr const char* kMeshVS = R"GLSL(#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aUV;
+uniform mat4 uMVP;
+uniform mat4 uModel;
+out vec2 vUV;
+out vec3 vN;
+void main() {
+    gl_Position = uMVP * vec4(aPos, 1.0);
+    vUV = aUV;
+    vN = mat3(uModel) * aNormal;
+}
+)GLSL";
+
+inline constexpr const char* kMeshFS = R"GLSL(#version 330 core
+uniform sampler2D uTex;
+uniform mat3  uIn;        // the model's texture position (unit square) -> media, i.e. the surface's input quad
+uniform float uShading;
+in vec2 vUV;
+in vec3 vN;
+out vec4 frag;
+void main() {
+    vec3 m = uIn * vec3(vUV, 1.0);
+    vec2 uv = m.xy / m.z;
+    vec4 c = texture(uTex, vec2(uv.x, 1.0 - uv.y));
+    float lambert = max(dot(normalize(vN), normalize(vec3(-0.35, 0.5, 1.0))), 0.0);
+    float light = mix(1.0, 0.25 + 0.75 * lambert, uShading);
+    frag = vec4(c.rgb * light, 1.0);
+}
+)GLSL";
+
 class Renderer {
 public:
     Renderer() {
@@ -112,13 +148,25 @@ public:
         locContrast_ = u("uContrast"); locBright_ = u("uBright"); locFeather_ = u("uFeather"); locBlend_ = u("uBlend");
         locPoly_ = u("uPoly"); locPolyN_ = u("uPolyN");
         glGenVertexArrays(1, &vao_);
+        meshProg_ = makeProgram(kMeshVS, kMeshFS);
     }
     ~Renderer() {
+        for (auto& kv : meshes_) { glDeleteVertexArrays(1, &kv.second.vao); glDeleteBuffers(1, &kv.second.vbo); }
+        for (auto& kv : objTargets_) destroyObjTarget(kv.second);
+        glDeleteProgram(meshProg_);
         glDeleteVertexArrays(1, &vao_);
         glDeleteProgram(prog_);
     }
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
+
+    // The texture a 3D object surface was last rendered into (0 if none). Used by the tests.
+    GLuint objectTexture(int surfaceId) const { auto it = objTargets_.find(surfaceId); return it == objTargets_.end() ? 0 : it->second.rt.tex; }
+    int objectTextureWidth(int surfaceId) const { auto it = objTargets_.find(surfaceId); return it == objTargets_.end() ? 0 : it->second.rt.w; }
+    int objectTextureHeight(int surfaceId) const { auto it = objTargets_.find(surfaceId); return it == objTargets_.end() ? 0 : it->second.rt.h; }
 
     void renderStage(const RenderTarget& rt, Project& project) {
+        renderObjects(rt, project);                 // 3D objects first, each into its own texture
         glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
         glViewport(0, 0, rt.w, rt.h);
         glDisable(GL_SCISSOR_TEST);
@@ -147,15 +195,22 @@ public:
             Vec2 eo[4], ei[4];
             effectiveOut(s, stageAspect, eo);
             effectiveIn(s, mediaAspect, ei);
+            GLuint tex = src->texture();
+            if (s.shape == Shape::Object3D) {           // the rendered model is the picture; the input quad was used to texture it
+                auto it = objTargets_.find(s.id);
+                if (it == objTargets_.end()) continue;
+                tex = it->second.rt.tex;
+                ei[0] = {0, 0}; ei[1] = {1, 0}; ei[2] = {1, 1}; ei[3] = {0, 1};
+            }
             Mat3 outH, invOut, inH;
             if (!squareToQuad(eo, outH) || !invert(outH, invOut)) continue;       // e.g. scaled down to nothing
             if (!squareToQuad(ei, inH)) continue;
 
             setBlend(s.blend);
-            glBindTexture(GL_TEXTURE_2D, src->texture());
+            glBindTexture(GL_TEXTURE_2D, tex);
             glUniformMatrix3fv(locInvOut_, 1, GL_TRUE, invOut.m);   // GL_TRUE: our matrices are row-major
             glUniformMatrix3fv(locIn_,     1, GL_TRUE, inH.m);
-            glUniform1i(locShape_, s.shape == Shape::Line ? 0 : (int)s.shape);       // a line is a (thin) quad
+            glUniform1i(locShape_, (s.shape == Shape::Line || s.shape == Shape::Object3D) ? 0 : (int)s.shape);   // a line or a 3D object fills its quad
             if (s.shape == Shape::Freeform) {
                 const int n = std::min<int>((int)s.poly.size(), kMaxPolyPoints);
                 glUniform2fv(locPoly_, n, &s.poly[0].x);
@@ -178,6 +233,88 @@ public:
     }
 
 private:
+    struct GpuMesh { GLuint vao = 0, vbo = 0; GLsizei count = 0; };
+    struct ObjTarget { RenderTarget rt; GLuint depth = 0; };
+
+    static void destroyObjTarget(ObjTarget& t) { if (t.depth) glDeleteRenderbuffers(1, &t.depth); destroyRenderTarget(t.rt); t.depth = 0; }
+
+    const GpuMesh& gpuMesh(const MeshData* m) {
+        auto it = meshes_.find(m);
+        if (it != meshes_.end()) return it->second;
+        GpuMesh g;
+        glGenVertexArrays(1, &g.vao); glGenBuffers(1, &g.vbo);
+        glBindVertexArray(g.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, g.vbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(m->vertices.size() * sizeof(MeshVertex)), m->vertices.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)0);
+        glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(2); glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)(6 * sizeof(float)));
+        glBindVertexArray(0);
+        g.count = (GLsizei)m->vertices.size();
+        return meshes_.emplace(m, g).first->second;
+    }
+
+    // Renders every visible 3D object into its own texture, sized like its quad on the stage (so nothing stretches).
+    void renderObjects(const RenderTarget& stage, Project& project) {
+        const float stageAspect = (float)stage.w / (float)std::max(1, stage.h);
+        std::vector<int> live;
+        for (const Surface& s : project.surfaces) {
+            if (s.shape != Shape::Object3D || !project.isShown(s) || s.opacity <= 0.0f) continue;
+            ContentSource* src = project.media.source(s.mediaId);
+            if (!src) continue;
+            Vec2 eo[4], ei[4];
+            effectiveOut(s, stageAspect, eo);
+            auto px = [&](Vec2 a, Vec2 b) { return std::hypot((a.x - b.x) * stage.w, (a.y - b.y) * stage.h); };
+            float w = 0.5f * (px(eo[0], eo[1]) + px(eo[3], eo[2])), h = 0.5f * (px(eo[0], eo[3]) + px(eo[1], eo[2]));
+            if (w < 1.0f || h < 1.0f) continue;
+            const float k = std::min(1.0f, 2048.0f / std::max(w, h));
+            const int tw = std::max(16, (int)std::lround(w * k)), th = std::max(16, (int)std::lround(h * k));
+            ObjTarget& t = objTargets_[s.id];
+            if (t.rt.w != tw || t.rt.h != th) {
+                destroyObjTarget(t);
+                t.rt = makeRenderTarget(tw, th);
+                glGenRenderbuffers(1, &t.depth);
+                glBindRenderbuffer(GL_RENDERBUFFER, t.depth);
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, tw, th);
+                glBindFramebuffer(GL_FRAMEBUFFER, t.rt.fbo);
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, t.depth);
+            }
+            live.push_back(s.id);
+
+            effectiveIn(s, (float)src->width() / (float)std::max(1, src->height()), ei);
+            Mat3 inH;
+            if (!squareToQuad(ei, inH)) continue;
+            const Mat4 model = objectModel(s.rotX, s.rotY, s.rotZ, s.objScale);
+            const Mat4 mvp = objectViewProjection(s.fov, (float)tw / (float)th) * model;
+
+            glBindFramebuffer(GL_FRAMEBUFFER, t.rt.fbo);
+            glViewport(0, 0, tw, th);
+            glClearColor(0, 0, 0, 0);
+            glClearDepth(1.0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS);
+            glDisable(GL_BLEND); glDisable(GL_CULL_FACE);
+            glUseProgram(meshProg_);
+            glUniformMatrix4fv(glGetUniformLocation(meshProg_, "uMVP"), 1, GL_FALSE, mvp.m.data());
+            glUniformMatrix4fv(glGetUniformLocation(meshProg_, "uModel"), 1, GL_FALSE, model.m.data());
+            glUniformMatrix3fv(glGetUniformLocation(meshProg_, "uIn"), 1, GL_TRUE, inH.m);
+            glUniform1f(glGetUniformLocation(meshProg_, "uShading"), s.shading);
+            glUniform1i(glGetUniformLocation(meshProg_, "uTex"), 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, src->texture());
+            const GpuMesh& g = gpuMesh(meshFor(s.meshKind, s.meshPath));
+            glBindVertexArray(g.vao);
+            glDrawArrays(GL_TRIANGLES, 0, g.count);
+            glBindVertexArray(0);
+            glDisable(GL_DEPTH_TEST);
+        }
+        for (auto it = objTargets_.begin(); it != objTargets_.end();) {           // surfaces that are gone, hidden or no longer 3D
+            if (std::find(live.begin(), live.end(), it->first) == live.end()) { destroyObjTarget(it->second); it = objTargets_.erase(it); }
+            else ++it;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
     static void setBlend(Blend b) {
         switch (b) {
             case Blend::Add:      glBlendFunc(GL_ONE, GL_ONE); break;
@@ -187,7 +324,9 @@ private:
         }
     }
 
-    GLuint prog_ = 0, vao_ = 0;
+    GLuint prog_ = 0, vao_ = 0, meshProg_ = 0;
+    std::map<const MeshData*, GpuMesh> meshes_;
+    std::map<int, ObjTarget> objTargets_;                   // by surface id
     GLint locTex_ = -1, locInvOut_ = -1, locIn_ = -1, locRes_ = -1, locShape_ = -1, locOpacity_ = -1, locFlip_ = -1;
     GLint locPoly_ = -1, locPolyN_ = -1;
     GLint locTint_ = -1, locHue_ = -1, locSat_ = -1, locContrast_ = -1, locBright_ = -1, locFeather_ = -1, locBlend_ = -1;

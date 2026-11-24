@@ -432,6 +432,9 @@ private:
         ImGui::SameLine();
         if (ImGui::Button("+ Freeform")) proj_.addSurface(Shape::Freeform, defaultMedia());
         recordRect("button:+ Freeform");
+        ImGui::SameLine();
+        if (ImGui::Button("+ 3D Object")) proj_.addSurface(Shape::Object3D, defaultMedia());
+        recordRect("button:+ 3D Object");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("A polygon: drag its points on the stage, double-click an edge to add one, right-click a point to delete it");
 
         const bool has = proj_.selected() != nullptr;
@@ -512,6 +515,39 @@ private:
         ImGui::PopID();
     }
 
+    // A 3D object: which model, and how it is turned and viewed (all of it animatable except the model).
+    void drawObjectInspector(Surface& s) {
+        if (ImGui::BeginCombo("Model", meshKindName(s.meshKind))) {
+            for (int i = 0; i < kMeshKindCount; i++) {
+                if (!ImGui::Selectable(meshKindName((MeshKind)i), (int)s.meshKind == i)) continue;
+                if ((MeshKind)i == MeshKind::File) openChooseModel(s.id);
+                else s.meshKind = (MeshKind)i;
+            }
+            ImGui::EndCombo();
+        }
+        recordRect("combo:Model");
+        if (s.meshKind == MeshKind::File) {
+            std::string err;
+            const MeshData* m = meshFor(s.meshKind, s.meshPath, &err);
+            ImGui::TextDisabled("%s", s.meshPath.empty() ? "(no file)" : fileNameOf(s.meshPath).c_str());
+            if (!err.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s (showing a cube)", err.c_str());
+            else ImGui::TextDisabled("%d triangles", (int)m->triangles());
+            if (ImGui::Button("Choose model...")) openChooseModel(s.id);
+            ImGui::SameLine();
+            if (ImGui::Button("Reload")) forgetMeshFile(s.meshPath);
+        }
+        for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov", "shading"}) paramSlider(s, k);
+        if (ImGui::Button("Reset view")) for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov", "shading"}) setParamToDefault(s, k);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped("The model wears the media (the Input view picks which part), and its picture is then mapped by the quad like any surface.");
+        ImGui::PopStyleColor();
+    }
+    void openChooseModel(int surfaceId) {
+        fileAction_ = FileAction::ChooseModel; fileTarget_ = surfaceId;
+        const Surface* s = proj_.find(surfaceId);
+        fileBrowser_.open(FileBrowser::Mode::Open, "Choose a 3D model", {"obj"}, s && !s->meshPath.empty() ? parentOf(s->meshPath) : startFolder());
+    }
+
     void drawSurfaceInspector(Surface& s) {
         ImGui::SeparatorText("Inspector");
         char buf[64];
@@ -536,6 +572,7 @@ private:
             ImGui::TextWrapped("Drag points on the stage. Double-click an edge to add a point, right-click a point to delete it. The round corners warp the whole outline.");
             ImGui::PopStyleColor();
         }
+        if (s.shape == Shape::Object3D) drawObjectInspector(s);
 
         if (ImGui::CollapsingHeader("Media", ImGuiTreeNodeFlags_DefaultOpen)) {
             MediaItem* cur = proj_.media.find(s.mediaId);
@@ -694,7 +731,7 @@ private:
 
     // ------------------------------------------------------------------ project files
     enum class Pending { None, New, Open, Exit };
-    enum class FileAction { None, OpenProject, SaveProject, AddMedia, RelinkMedia, RelinkAudio };
+    enum class FileAction { None, OpenProject, SaveProject, AddMedia, RelinkMedia, RelinkAudio, ChooseModel };
 
     float drawMenuBar() {
         const float h = ImGui::GetFrameHeight();
@@ -811,6 +848,9 @@ private:
                 break;
             case FileAction::AddMedia: onFileDropped(path); settings_.lastFolder = parentOf(path); saveSettings(settings_); break;
             case FileAction::RelinkMedia: relinkMediaId_ = fileTarget_; relinkMediaPath_ = path; break;
+            case FileAction::ChooseModel:
+                if (Surface* s = proj_.find(fileTarget_)) { forgetMeshFile(path); s->meshKind = MeshKind::File; s->meshPath = path; settings_.lastFolder = parentOf(path); saveSettings(settings_); }
+                break;
             case FileAction::RelinkAudio:
                 if (AudioAsset* a = proj_.findAsset(fileTarget_)) { a->path = path; a->missing = false; a->loading = true; audioLoader_.start(path, a->id); }
                 break;

@@ -9,7 +9,10 @@ int main() {
     const auto& defs = paramDefs();
     const size_t general = (size_t)std::count_if(defs.begin(), defs.end(), [](const ParamDef& d) { return d.applies == nullptr; });
     expect("there are 20 animatable parameters every surface has (3 appearance, 6 transform, 4 content, 7 colour)", general == 20);
-    expect("...plus shape-specific ones (a line's width) at the end of the table", defs.size() == 21 && std::string(defs.back().key) == "lineWidth");
+    expect("...plus shape-specific ones (a line's width, six for 3D objects)", defs.size() == 27);
+    { Surface quad, line, obj; line.shape = Shape::Line; obj.shape = Shape::Object3D;
+      const ParamDef* lw = findParamDef("lineWidth"); const ParamDef* ry = findParamDef("rotY");
+      expect("...which only apply to their own shape", lw && ry && lw->appliesTo(line) && !lw->appliesTo(quad) && !lw->appliesTo(obj) && ry->appliesTo(obj) && !ry->appliesTo(line) && findParamDef("opacity")->appliesTo(obj)); }
     std::set<std::string> keys; bool unique = true, ranges = true, defaultsOk = true, labels = true;
     const Surface fresh;
     for (const ParamDef& d : defs) {

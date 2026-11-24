@@ -58,6 +58,16 @@ inline const std::vector<ParamDef>& paramDefs() {
         ParamDef{"lineWidth", "Line width", "Line", 0.001f, 0.5f, 0.02f, ParamFormat::Percent,
                  [](const Surface& s) { return s.lineWidth; }, [](Surface& s, float v) { s.lineWidth = v; },
                  [](const Surface& s) { return s.shape == Shape::Line; }},
+#define MH_PARAM3D(KEY, LABEL, MIN, MAX, DEF, FMT, MEMBER) \
+        ParamDef{KEY, LABEL, "3D Object", MIN, MAX, DEF, FMT, [](const Surface& s) { return s.MEMBER; }, [](Surface& s, float v) { s.MEMBER = v; }, \
+                 [](const Surface& s) { return s.shape == Shape::Object3D; }}
+        MH_PARAM3D("rotX",     "Turn X",        -720.0f, 720.0f, -20.0f, ParamFormat::Degrees, rotX),
+        MH_PARAM3D("rotY",     "Turn Y",        -720.0f, 720.0f, 30.0f,  ParamFormat::Degrees, rotY),
+        MH_PARAM3D("rotZ",     "Turn Z",        -720.0f, 720.0f, 0.0f,   ParamFormat::Degrees, rotZ),
+        MH_PARAM3D("objScale", "Size",          0.0f,    4.0f,   1.0f,   ParamFormat::Percent, objScale),
+        MH_PARAM3D("fov",      "Field of view", 5.0f,    150.0f, 40.0f,  ParamFormat::Degrees, fov),
+        MH_PARAM3D("shading",  "Shading",       0.0f,    1.0f,   0.0f,   ParamFormat::Percent, shading),
+#undef MH_PARAM3D
     };
     return defs;
 }

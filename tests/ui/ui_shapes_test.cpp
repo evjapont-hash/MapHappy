@@ -45,6 +45,18 @@ int main() {
     ui.check("an outline keeps at least three points", [&] { return sel()->poly.size() == 3; });
     ui.click(ui.uiCenter("button:Reset outline")); ui.wait(2);
     ui.check("Reset outline brings back the hexagon", [&] { return sel()->poly.size() == 6; });
+
+    // ---- 3D object
+    ui.act([&] { for (Surface& s : p.surfaces) s.visible = false; }); ui.wait(2);
+    ui.click(ui.uiCenter("button:+ 3D Object")); ui.wait(3);
+    ui.check("+ 3D Object adds one, with its model and view controls in the inspector", [&] { return sel() && sel()->shape == Shape::Object3D && ui.editor->uiRect("combo:Model").valid && ui.editor->uiRect("slider:rotY").valid; });
+    ui.act([&] { Surface* s = sel(); s->mediaId = orange; s->out[0] = {0.3f, 0.2f}; s->out[1] = {0.7f, 0.2f}; s->out[2] = {0.7f, 0.8f}; s->out[3] = {0.3f, 0.8f}; }); ui.wait(3);
+    ui.check("the model appears on the stage, with empty space around it", [&] { return isColor(ui.stagePixel(0.5f, 0.5f), 255, 128, 0, 6) && isColor(ui.stagePixel(0.31f, 0.21f), 0, 0, 0, 6); });
+    ui.click(ui.uiCenter("slider:rotY", 0.85f));                          // (not the middle: the grab sits there, and clicking a grab doesn't jump it)
+    ui.check("the Turn Y slider turns it (85% along = about +500 degrees)", [&] { return sel()->rotY > 400.0f && sel()->rotY < 600.0f; });
+    ui.click(ui.uiCenter("combo:Model")); ui.wait(2);
+    ui.click(UiTest::popupItem("##Combo_", 19)); ui.wait(3);                // the second model: Sphere
+    ui.check("the Model list switches the model", [&] { return sel()->meshKind == MeshKind::Sphere; });
     ui.run();
     return finishTest();
 }

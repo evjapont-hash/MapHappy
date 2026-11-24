@@ -1,5 +1,6 @@
 #pragma once
 #include "Homography.h"
+#include "Mesh.h"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -9,8 +10,9 @@
 // the shape (circle, triangle, freeform polygon) is cut out of it.
 //   Line     - the quad is built from two end points and a width (lineA, lineB, lineWidth)
 //   Freeform - a polygon of any number of points (poly), in the quad's own 0..1 square
-enum class Shape { Quad = 0, Circle = 1, Triangle = 2, Line = 3, Freeform = 4 };
-constexpr int kShapeCount = 5;
+//   Object3D - a 3D model (built-in or an OBJ file) wearing the media as its texture, rendered, then mapped by the quad
+enum class Shape { Quad = 0, Circle = 1, Triangle = 2, Line = 3, Freeform = 4, Object3D = 5 };
+constexpr int kShapeCount = 6;
 
 inline const char* shapeName(Shape s) {
     switch (s) {
@@ -18,6 +20,7 @@ inline const char* shapeName(Shape s) {
         case Shape::Triangle: return "Triangle";
         case Shape::Line:     return "Line";
         case Shape::Freeform: return "Freeform";
+        case Shape::Object3D: return "3D Object";
         default:              return "Quad";
     }
 }
@@ -27,6 +30,7 @@ inline const char* shapeTag(Shape s) {
         case Shape::Triangle: return "^";
         case Shape::Line:     return "/";
         case Shape::Freeform: return "*";
+        case Shape::Object3D: return "3D";
         default:              return "#";
     }
 }
@@ -36,6 +40,7 @@ inline const char* shapeKey(Shape s) {
         case Shape::Triangle: return "triangle";
         case Shape::Line:     return "line";
         case Shape::Freeform: return "freeform";
+        case Shape::Object3D: return "object3d";
         default:              return "quad";
     }
 }
@@ -95,6 +100,13 @@ struct Surface {
     float lineWidth = 0.02f;
     // ---- Freeform: the polygon's points, in the quad's 0..1 square
     std::vector<Vec2> poly = defaultPolygon();
+    // ---- 3D object: which model, and how it is turned and viewed
+    MeshKind    meshKind = MeshKind::Cube;
+    std::string meshPath;                                     // MeshKind::File only
+    float rotX = -20.0f, rotY = 30.0f, rotZ = 0.0f;           // degrees: turned around Y, then X, then Z
+    float objScale = 1.0f;
+    float fov = 40.0f;                                        // the virtual camera's field of view, degrees
+    float shading = 0.0f;                                     // 0 = flat (the projector is the light), 1 = lit from the front
 };
 
 // A line's quad: the segment from lineA to lineB, lineWidth thick, square in PIXELS (aspect = stage w / h).

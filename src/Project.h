@@ -103,7 +103,7 @@ struct Project {
     void resetInput(Surface& s) const {
         float hx = 0.5f, hy = 0.5f;
         if (s.shape == Shape::Line) hy = 0.05f;
-        else if (s.shape != Shape::Quad) {
+        else if (s.shape != Shape::Quad && s.shape != Shape::Object3D) {      // (a 3D model's faces each show the whole picture)
             const MediaItem* m = media.find(s.mediaId);
             float a = m ? m->aspect() : 16.0f / 9.0f;
             if (a >= 1.0f) hx = 0.5f / a; else hy = 0.5f * a;
