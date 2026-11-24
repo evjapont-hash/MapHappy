@@ -5,6 +5,7 @@
 #include "PathUtil.h"
 #include "ProjectIO.h"
 #include "Renderer.h"
+#include <set>
 using json = nlohmann::json;
 
 // left half red, right half blue
@@ -60,9 +61,6 @@ int main() {
     expect("...and the depth test hides the faces behind (the outer halves show their own colours)", isRed(px(85, 200)) && isBlue(px(315, 200)));
     S().rotY = 0;
 
-    S().shading = 1.0f; draw(); const Px lit = px(170, 200);
-    S().shading = 0.0f; draw(); const Px flat = px(170, 200);
-    expect("shading darkens a face that isn't lit head-on; flat shows the picture as it is", flat.r > 250 && lit.r < flat.r - 20 && lit.r > 40);
 
     S().objScale = 0.5f; draw();
     expect("size 50% shrinks the model about the middle", isRed(px(185, 200)) && isBlack(px(120, 200)));
@@ -100,6 +98,52 @@ int main() {
     S().visible = false; draw();
     expect("a hidden 3D object is not rendered, and its texture is let go", isBlack(px(200, 200)) && renderer.objectTexture(id) == 0);
     S().visible = true;
+
+    // ---- lighting (on a white or red picture, the cube's front face filling the middle)
+    { const int white = p.media.addGenerator([] { GenSettings g = GenSettings::defaults(GenType::Solid); g.setSize(8, 8); g.setColor("color", {1, 1, 1, 1}); return g; }());
+      const int redPic = p.media.addGenerator([] { GenSettings g = GenSettings::defaults(GenType::Solid); g.setSize(8, 8); g.setColor("color", {1, 0, 0, 1}); return g; }());
+      Surface& o = S();
+      const LightRig defaults;
+      o.mediaId = white; o.meshKind = MeshKind::Cube; o.rotX = 0; o.rotY = 0; o.shading = 1.0f;
+      o.light = defaults; o.light.ambient = 0; o.light.ks = 0; o.light.dirAzimuth = 0; o.light.dirElevation = 0; o.light.model = (float)LightModel::BlinnPhong;
+      auto r = [&](int x, int y) { return px(x, y).r; };
+      draw();
+      expect("lighting: a face looking straight at the sun is fully lit", r(200, 200) >= 250);
+      o.light.dirAzimuth = 60; draw();
+      expect("...at 60 degrees it gets half the light (diffuse = N.L)", std::abs(r(200, 200) - 128) <= 4);
+      o.light.dirAzimuth = 90; draw();
+      expect("...side-on it gets none", r(200, 200) <= 3);
+      o.light.ambient = 0.5f; draw();
+      expect("the ambient term lights everything evenly", std::abs(r(200, 200) - 128) <= 4 && std::abs(r(120, 280) - 128) <= 4);
+      o.light.ambient = 0; o.shading = 0.5f; draw();
+      expect("Lighting 50% mixes the lit and the plain picture", std::abs(r(200, 200) - 128) <= 4);
+      o.shading = 1.0f; o.light.model = (float)LightModel::Unlit; draw();
+      expect("the Unlit model shows the picture as it is, whatever the lights", r(200, 200) >= 250);
+
+      o.light.model = (float)LightModel::BlinnPhong; o.light.dirAzimuth = 0; o.mediaId = redPic; o.light.ks = 1.0f; o.light.shininess = 32; draw();
+      const Px spotC = px(200, 200), off = px(140, 140);
+      expect("specular: a white highlight where the light reflects towards the camera, fading away from it", spotC.r >= 250 && spotC.g > 200 && off.g < spotC.g - 20);
+      const int blinnOff = px(160, 160).g;
+      o.light.model = (float)LightModel::Phong; draw();
+      const int phongOff = px(160, 160).g;
+      expect("Phong and Blinn-Phong are different programs: Blinn's highlight is wider at the same shininess", px(200, 200).g > 200 && blinnOff > phongOff + 5);
+      o.light.ks = 0; o.mediaId = white; o.light.model = (float)LightModel::BlinnPhong;
+
+      o.light.dirIntensity = 0; o.light.pointIntensity = 1.0f; o.light.pointX = 0; o.light.pointY = 0; o.light.pointZ = 1.2f; o.light.pointRange = 1.0f; draw();
+      expect("a point light close to the face lights its middle more than its corners", r(200, 200) > r(90, 90) + 40 && r(200, 200) > 40);
+      o.light.pointIntensity = 0; o.light.spotIntensity = 2.0f; o.light.spotX = 0; o.light.spotY = 0; o.light.spotZ = 4.0f; o.light.spotAngle = 10; o.light.spotSoftness = 0; draw();
+      expect("a narrow spotlight lights a disc in the middle and nothing outside its cone", r(200, 200) > 200 && r(120, 200) <= 3 && r(200, 120) <= 3);
+      o.light.spotSoftness = 1.0f; o.light.spotAngle = 30; draw();
+      { int partial = 0; for (int x = 200; x < 340; x += 2) { int v = r(x, 200); if (v > 20 && v < 230) partial++; }
+        expect("...a soft spotlight fades out towards its edge", partial > 5); }
+      o.light.spotIntensity = 0; o.light.dirIntensity = 1;
+
+      o.meshKind = MeshKind::Sphere; o.light.dirAzimuth = 70; o.light.model = (float)LightModel::BlinnPhong; draw();
+      std::set<int> smooth; for (int x = 40; x < 360; x++) smooth.insert(r(x, 200));
+      o.light.model = (float)LightModel::Toon; draw();
+      std::set<int> toon; for (int x = 40; x < 360; x++) toon.insert(r(x, 200));
+      expect("Toon lights a sphere in a few flat bands; Blinn-Phong in a smooth ramp", toon.size() <= 8 && smooth.size() > 40);
+      o.light = defaults; o.shading = 0; o.meshKind = MeshKind::Cube; o.mediaId = split; }
 
     // ---- save and load
     { S().meshKind = MeshKind::File; S().meshPath = objPath; S().rotX = 12.5f; S().fov = 70.0f; S().shading = 0.4f;

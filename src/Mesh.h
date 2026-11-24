@@ -61,3 +61,4 @@ std::array<float, 4> transformPoint(const Mat4& m, float x, float y, float z);
 // radius 1 just fills the view at scale 1 whatever the field of view.
 Mat4 objectModel(float rotX, float rotY, float rotZ, float scale);
 Mat4 objectViewProjection(float fovDegrees, float aspect);
+float objectCameraDistance(float fovDegrees, float aspect);   // where that camera stands on +Z (for lighting)

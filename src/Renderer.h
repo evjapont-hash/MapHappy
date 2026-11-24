@@ -1,5 +1,6 @@
 #pragma once
 #include "GLUtil.h"
+#include "LightingShaders.h"
 #include "Project.h"
 #include <algorithm>
 #include <map>
@@ -147,39 +148,6 @@ void main() {
 }
 )GLSL";
 
-// The 3D pass: a model wearing the media, drawn with depth into the surface's own texture (transparent around it).
-inline constexpr const char* kMeshVS = R"GLSL(#version 330 core
-layout(location = 0) in vec3 aPos;
-layout(location = 1) in vec3 aNormal;
-layout(location = 2) in vec2 aUV;
-uniform mat4 uMVP;
-uniform mat4 uModel;
-out vec2 vUV;
-out vec3 vN;
-void main() {
-    gl_Position = uMVP * vec4(aPos, 1.0);
-    vUV = aUV;
-    vN = mat3(uModel) * aNormal;
-}
-)GLSL";
-
-inline constexpr const char* kMeshFS = R"GLSL(#version 330 core
-uniform sampler2D uTex;
-uniform mat3  uIn;        // the model's texture position (unit square) -> media, i.e. the surface's input quad
-uniform float uShading;
-in vec2 vUV;
-in vec3 vN;
-out vec4 frag;
-void main() {
-    vec3 m = uIn * vec3(vUV, 1.0);
-    vec2 uv = m.xy / m.z;
-    vec4 c = texture(uTex, vec2(uv.x, 1.0 - uv.y));
-    float lambert = max(dot(normalize(vN), normalize(vec3(-0.35, 0.5, 1.0))), 0.0);
-    float light = mix(1.0, 0.25 + 0.75 * lambert, uShading);
-    frag = vec4(c.rgb * light, 1.0);
-}
-)GLSL";
-
 class Renderer {
 public:
     Renderer() {
@@ -192,12 +160,12 @@ public:
         locMaskCount_ = u("uMaskCount"); locMaskShape_ = u("uMaskShape"); locMaskMode_ = u("uMaskMode"); locMaskFeather_ = u("uMaskFeather");
         locMaskBox_ = u("uMaskBox"); locMaskStart_ = u("uMaskStart"); locMaskN_ = u("uMaskN"); locMaskPts_ = u("uMaskPts");
         glGenVertexArrays(1, &vao_);
-        meshProg_ = makeProgram(kMeshVS, kMeshFS);
+        for (int i = 0; i < kLightModelCount; i++) meshProgs_[i] = makeProgram(kMeshVS, lightingFragmentShader(i).c_str());   // all compiled now, picked per object
     }
     ~Renderer() {
         for (auto& kv : meshes_) { glDeleteVertexArrays(1, &kv.second.vao); glDeleteBuffers(1, &kv.second.vbo); }
         for (auto& kv : objTargets_) destroyObjTarget(kv.second);
-        glDeleteProgram(meshProg_);
+        for (GLuint pr : meshProgs_) glDeleteProgram(pr);
         glDeleteVertexArrays(1, &vao_);
         glDeleteProgram(prog_);
     }
@@ -339,12 +307,15 @@ private:
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS);
             glDisable(GL_BLEND); glDisable(GL_CULL_FACE);
-            glUseProgram(meshProg_);
-            glUniformMatrix4fv(glGetUniformLocation(meshProg_, "uMVP"), 1, GL_FALSE, mvp.m.data());
-            glUniformMatrix4fv(glGetUniformLocation(meshProg_, "uModel"), 1, GL_FALSE, model.m.data());
-            glUniformMatrix3fv(glGetUniformLocation(meshProg_, "uIn"), 1, GL_TRUE, inH.m);
-            glUniform1f(glGetUniformLocation(meshProg_, "uShading"), s.shading);
-            glUniform1i(glGetUniformLocation(meshProg_, "uTex"), 0);
+            const int lm = std::max(0, std::min(kLightModelCount - 1, (int)std::lround(s.light.model)));
+            const GLuint prog = meshProgs_[lm];
+            glUseProgram(prog);                                              // the light model's own program
+            auto u = [&](const char* n) { return glGetUniformLocation(prog, n); };
+            glUniformMatrix4fv(u("uMVP"), 1, GL_FALSE, mvp.m.data());
+            glUniformMatrix4fv(u("uModel"), 1, GL_FALSE, model.m.data());
+            glUniformMatrix3fv(u("uIn"), 1, GL_TRUE, inH.m);
+            glUniform1i(u("uTex"), 0);
+            setLightUniforms(prog, s, (float)tw / (float)th, lm == (int)LightModel::Unlit);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, src->texture());
             const GpuMesh& g = gpuMesh(meshFor(s.meshKind, s.meshPath));
@@ -383,6 +354,28 @@ private:
         if (!pts.empty()) glUniform2fv(locMaskPts_, (GLsizei)pts.size() / 2, pts.data());
     }
 
+    // The lights and material of a 3D object (see LightingShaders.h for what each uniform means).
+    static void setLightUniforms(GLuint prog, const Surface& s, float aspect, bool unlit) {
+        auto u = [&](const char* n) { return glGetUniformLocation(prog, n); };
+        const LightRig& L = s.light;
+        const float deg = 3.14159265f / 180.0f;
+        glUniform1f(u("uLighting"), unlit ? 0.0f : s.shading);
+        glUniform3f(u("uCamPos"), 0.0f, 0.0f, objectCameraDistance(s.fov, aspect));
+        glUniform1f(u("uAmbient"), L.ambient); glUniform1f(u("uKd"), L.kd); glUniform1f(u("uKs"), L.ks); glUniform1f(u("uShininess"), std::max(1.0f, L.shininess));
+        const float az = L.dirAzimuth * deg, el = L.dirElevation * deg;
+        glUniform3f(u("uDirDir"), std::sin(az) * std::cos(el), std::sin(el), std::cos(az) * std::cos(el));
+        glUniform3f(u("uDirColor"), L.dirR * L.dirIntensity, L.dirG * L.dirIntensity, L.dirB * L.dirIntensity);
+        glUniform3f(u("uPointPos"), L.pointX, L.pointY, L.pointZ);
+        glUniform3f(u("uPointColor"), L.pointR * L.pointIntensity, L.pointG * L.pointIntensity, L.pointB * L.pointIntensity);
+        glUniform1f(u("uPointRange"), std::max(0.01f, L.pointRange));
+        glUniform3f(u("uSpotPos"), L.spotX, L.spotY, L.spotZ);
+        const float len = std::max(1e-5f, std::sqrt(L.spotX * L.spotX + L.spotY * L.spotY + L.spotZ * L.spotZ));
+        glUniform3f(u("uSpotDir"), -L.spotX / len, -L.spotY / len, -L.spotZ / len);          // aimed at the model
+        glUniform3f(u("uSpotColor"), L.spotR * L.spotIntensity, L.spotG * L.spotIntensity, L.spotB * L.spotIntensity);
+        const float outer = std::max(0.5f, L.spotAngle) * 0.5f * deg, inner = outer * (1.0f - std::max(0.0f, std::min(1.0f, L.spotSoftness)));
+        glUniform1f(u("uSpotCosOuter"), std::cos(outer)); glUniform1f(u("uSpotCosInner"), std::cos(inner) + 1e-4f);
+    }
+
     static void setBlend(Blend b) {
         switch (b) {
             case Blend::Add:      glBlendFunc(GL_ONE, GL_ONE); break;
@@ -392,7 +385,8 @@ private:
         }
     }
 
-    GLuint prog_ = 0, vao_ = 0, meshProg_ = 0;
+    GLuint prog_ = 0, vao_ = 0;
+    GLuint meshProgs_[kLightModelCount] = {};                // one program per light model (LightingShaders.h)
     std::map<const MeshData*, GpuMesh> meshes_;
     std::map<int, ObjTarget> objTargets_;                   // by surface id
     GLint locTex_ = -1, locInvOut_ = -1, locIn_ = -1, locRes_ = -1, locShape_ = -1, locOpacity_ = -1, locFlip_ = -1;

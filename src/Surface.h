@@ -59,6 +59,23 @@ inline std::vector<Vec2> defaultPolygon() {  // a hexagon filling the quad
     return p;
 }
 
+// How a 3D object is lit: a light model, an ambient term, a material, and three lights (directional, point, spot).
+// Positions are in the model's world: the model sits at the origin with radius 1, the camera looks at it from +Z.
+enum class LightModel { Unlit = 0, Phong = 1, BlinnPhong = 2, Toon = 3 };
+constexpr int kLightModelCount = 4;
+inline const char* lightModelName(LightModel m) { static const char* n[] = {"Unlit", "Phong", "Blinn-Phong", "Toon"}; return n[(int)m]; }
+struct LightRig {
+    float model = 2.0f;                                                    // LightModel, as a number so it can be animated
+    float ambient = 0.2f;
+    float kd = 1.0f, ks = 0.5f, shininess = 32.0f;                         // material: diffuse, specular, shininess
+    float dirIntensity = 1.0f, dirAzimuth = -30.0f, dirElevation = 30.0f;  // degrees: 0/0 = from the camera's side
+    float dirR = 1.0f, dirG = 1.0f, dirB = 1.0f;
+    float pointIntensity = 0.0f, pointX = 1.5f, pointY = 1.0f, pointZ = 2.0f, pointRange = 4.0f;
+    float pointR = 1.0f, pointG = 0.6f, pointB = 0.3f;
+    float spotIntensity = 0.0f, spotX = -2.0f, spotY = 2.0f, spotZ = 2.5f, spotAngle = 25.0f, spotSoftness = 0.3f;   // the spot aims at the model
+    float spotR = 0.4f, spotG = 0.7f, spotB = 1.0f;
+};
+
 // A mask cuts part of a surface away. It lives in the surface's own 0..1 square (like a freeform outline), so it
 // follows the surface's warp, transform and shape. Several masks combine: each one multiplies what is left.
 enum class MaskShape { Rectangle = 0, Ellipse = 1, Polygon = 2 };
@@ -142,7 +159,8 @@ struct Surface {
     float rotX = -20.0f, rotY = 30.0f, rotZ = 0.0f;           // degrees: turned around Y, then X, then Z
     float objScale = 1.0f;
     float fov = 40.0f;                                        // the virtual camera's field of view, degrees
-    float shading = 0.0f;                                     // 0 = flat (the projector is the light), 1 = lit from the front
+    float shading = 0.0f;                                     // "Lighting": 0 = the picture as it is (the projector is the light), 1 = fully lit
+    LightRig light;
 };
 
 // A line's quad: the segment from lineA to lineB, lineWidth thick, square in PIXELS (aspect = stage w / h).

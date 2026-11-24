@@ -937,8 +937,35 @@ private:
             ImGui::SameLine();
             if (ImGui::Button("Reload")) forgetMeshFile(s.meshPath);
         }
-        for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov", "shading"}) paramSlider(s, k);
-        if (ImGui::Button("Reset view")) for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov", "shading"}) setParamToDefault(s, k);
+        for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov"}) paramSlider(s, k);
+        if (ImGui::Button("Reset view")) for (const char* k : {"rotX", "rotY", "rotZ", "objScale", "fov"}) setParamToDefault(s, k);
+
+        ImGui::SeparatorText("Lighting");
+        int lm = std::max(0, std::min(kLightModelCount - 1, (int)std::lround(s.light.model)));
+        if (ImGui::BeginCombo("Light model", lightModelName((LightModel)lm))) {
+            for (int i = 0; i < kLightModelCount; i++) if (ImGui::Selectable(lightModelName((LightModel)i), i == lm)) s.light.model = (float)i;
+            ImGui::EndCombo();
+        }
+        recordRect("combo:Light model");
+        if (ImGui::BeginPopupContextItem("##lmctx")) {
+            if (ImGui::MenuItem("Animate in the Conductor", nullptr, false, !isAnimated(s.id, "lightModel"))) animateParam(s, "lightModel");
+            ImGui::EndPopup();
+        }
+        paramSlider(s, "shading");
+        if (lm == (int)LightModel::Unlit) ImGui::TextDisabled("Unlit: the picture as it is, no lights.");
+        else {
+            paramSlider(s, "ambient");
+            auto group = [&](const char* title, std::initializer_list<const char*> keys) {
+                if (!ImGui::TreeNode(title)) return;
+                for (const char* k : keys) paramSlider(s, k);
+                ImGui::TreePop();
+            };
+            group("Material", {"kd", "ks", "shininess"});
+            group("Sun (directional)", {"dirIntensity", "dirAzimuth", "dirElevation", "dirR", "dirG", "dirB"});
+            group("Point light", {"pointIntensity", "pointX", "pointY", "pointZ", "pointRange", "pointR", "pointG", "pointB"});
+            group("Spotlight", {"spotIntensity", "spotX", "spotY", "spotZ", "spotAngle", "spotSoftness", "spotR", "spotG", "spotB"});
+            if (s.shading <= 0.0f) ImGui::TextDisabled("Turn Lighting up to see the lights.");
+        }
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
         ImGui::TextWrapped("The model wears the media (the Input view picks which part), and its picture is then mapped by the quad like any surface.");
         ImGui::PopStyleColor();

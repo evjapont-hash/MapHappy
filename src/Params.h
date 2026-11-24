@@ -66,8 +66,40 @@ inline const std::vector<ParamDef>& paramDefs() {
         MH_PARAM3D("rotZ",     "Turn Z",        -720.0f, 720.0f, 0.0f,   ParamFormat::Degrees, rotZ),
         MH_PARAM3D("objScale", "Size",          0.0f,    4.0f,   1.0f,   ParamFormat::Percent, objScale),
         MH_PARAM3D("fov",      "Field of view", 5.0f,    150.0f, 40.0f,  ParamFormat::Degrees, fov),
-        MH_PARAM3D("shading",  "Shading",       0.0f,    1.0f,   0.0f,   ParamFormat::Percent, shading),
+        MH_PARAM3D("shading",  "Lighting",      0.0f,    1.0f,   0.0f,   ParamFormat::Percent, shading),
 #undef MH_PARAM3D
+#define MH_LIGHT(KEY, LABEL, MIN, MAX, DEF, FMT, MEMBER) \
+        ParamDef{KEY, LABEL, "Lighting", MIN, MAX, DEF, FMT, [](const Surface& s) { return s.light.MEMBER; }, [](Surface& s, float v) { s.light.MEMBER = v; }, \
+                 [](const Surface& s) { return s.shape == Shape::Object3D; }}
+        MH_LIGHT("lightModel",     "Light model",     0.0f, 3.0f,     2.0f,  ParamFormat::Plain,   model),
+        MH_LIGHT("ambient",        "Ambient",         0.0f, 1.0f,     0.2f,  ParamFormat::Percent, ambient),
+        MH_LIGHT("kd",             "Diffuse",         0.0f, 2.0f,     1.0f,  ParamFormat::Percent, kd),
+        MH_LIGHT("ks",             "Specular",        0.0f, 2.0f,     0.5f,  ParamFormat::Percent, ks),
+        MH_LIGHT("shininess",      "Shininess",       1.0f, 256.0f,   32.0f, ParamFormat::Plain,   shininess),
+        MH_LIGHT("dirIntensity",   "Sun strength",    0.0f, 3.0f,     1.0f,  ParamFormat::Percent, dirIntensity),
+        MH_LIGHT("dirAzimuth",     "Sun direction",   -180.0f, 180.0f, -30.0f, ParamFormat::Degrees, dirAzimuth),
+        MH_LIGHT("dirElevation",   "Sun height",      -90.0f, 90.0f,  30.0f, ParamFormat::Degrees, dirElevation),
+        MH_LIGHT("dirR",           "Sun red",         0.0f, 1.0f,     1.0f,  ParamFormat::Percent, dirR),
+        MH_LIGHT("dirG",           "Sun green",       0.0f, 1.0f,     1.0f,  ParamFormat::Percent, dirG),
+        MH_LIGHT("dirB",           "Sun blue",        0.0f, 1.0f,     1.0f,  ParamFormat::Percent, dirB),
+        MH_LIGHT("pointIntensity", "Point strength",  0.0f, 5.0f,     0.0f,  ParamFormat::Percent, pointIntensity),
+        MH_LIGHT("pointX",         "Point X",         -5.0f, 5.0f,    1.5f,  ParamFormat::Plain,   pointX),
+        MH_LIGHT("pointY",         "Point Y",         -5.0f, 5.0f,    1.0f,  ParamFormat::Plain,   pointY),
+        MH_LIGHT("pointZ",         "Point Z",         -5.0f, 5.0f,    2.0f,  ParamFormat::Plain,   pointZ),
+        MH_LIGHT("pointRange",     "Point reach",     0.5f, 20.0f,    4.0f,  ParamFormat::Plain,   pointRange),
+        MH_LIGHT("pointR",         "Point red",       0.0f, 1.0f,     1.0f,  ParamFormat::Percent, pointR),
+        MH_LIGHT("pointG",         "Point green",     0.0f, 1.0f,     0.6f,  ParamFormat::Percent, pointG),
+        MH_LIGHT("pointB",         "Point blue",      0.0f, 1.0f,     0.3f,  ParamFormat::Percent, pointB),
+        MH_LIGHT("spotIntensity",  "Spot strength",   0.0f, 5.0f,     0.0f,  ParamFormat::Percent, spotIntensity),
+        MH_LIGHT("spotX",          "Spot X",          -5.0f, 5.0f,    -2.0f, ParamFormat::Plain,   spotX),
+        MH_LIGHT("spotY",          "Spot Y",          -5.0f, 5.0f,    2.0f,  ParamFormat::Plain,   spotY),
+        MH_LIGHT("spotZ",          "Spot Z",          -5.0f, 5.0f,    2.5f,  ParamFormat::Plain,   spotZ),
+        MH_LIGHT("spotAngle",      "Spot angle",      1.0f, 90.0f,    25.0f, ParamFormat::Degrees, spotAngle),
+        MH_LIGHT("spotSoftness",   "Spot softness",   0.0f, 1.0f,     0.3f,  ParamFormat::Percent, spotSoftness),
+        MH_LIGHT("spotR",          "Spot red",        0.0f, 1.0f,     0.4f,  ParamFormat::Percent, spotR),
+        MH_LIGHT("spotG",          "Spot green",      0.0f, 1.0f,     0.7f,  ParamFormat::Percent, spotG),
+        MH_LIGHT("spotB",          "Spot blue",       0.0f, 1.0f,     1.0f,  ParamFormat::Percent, spotB),
+#undef MH_LIGHT
     };
     return defs;
 }

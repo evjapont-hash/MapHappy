@@ -256,11 +256,15 @@ std::array<float, 4> transformPoint(const Mat4& m, float x, float y, float z) {
 Mat4 objectModel(float rotX, float rotY, float rotZ, float scale) {
     return rotationY(rotY) * rotationX(rotX) * rotationZ(rotZ) * scaling(std::max(0.0f, scale));
 }
-Mat4 objectViewProjection(float fovDegrees, float aspect) {
+float objectCameraDistance(float fovDegrees, float aspect) {
     fovDegrees = std::max(5.0f, std::min(150.0f, fovDegrees));
     // a ball of radius 1 just touches the top and bottom of the view at this distance (or the sides, if narrower)
     const float halfV = fovDegrees * kPi / 360.0f;
     const float halfH = std::atan(std::tan(halfV) * std::max(1e-3f, aspect));
-    const float dist = 1.0f / std::sin(std::min(halfV, halfH));
+    return 1.0f / std::sin(std::min(halfV, halfH));
+}
+Mat4 objectViewProjection(float fovDegrees, float aspect) {
+    fovDegrees = std::max(5.0f, std::min(150.0f, fovDegrees));
+    const float dist = objectCameraDistance(fovDegrees, aspect);
     return perspective(fovDegrees, aspect, std::max(0.01f, dist - 4.0f), dist + 4.0f) * translation(0, 0, -dist);
 }
