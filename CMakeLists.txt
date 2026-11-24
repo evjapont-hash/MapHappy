@@ -63,6 +63,17 @@ if(NOT FFMPEG_FOUND)
 endif()
 find_package(Threads REQUIRED)
 
+# ---- The UI typeface, turned into a C++ array so it is part of the program
+set(MAPHAPPY_GENERATED ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(MAPHAPPY_FONT ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${MAPHAPPY_FONT})
+if(NOT EXISTS ${MAPHAPPY_GENERATED}/InterFontData.h OR ${MAPHAPPY_FONT} IS_NEWER_THAN ${MAPHAPPY_GENERATED}/InterFontData.h)
+  file(READ ${MAPHAPPY_FONT} font_hex HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," font_bytes "${font_hex}")
+  string(REGEX REPLACE "(0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,)" "\\1\n" font_bytes "${font_bytes}")
+  file(WRITE ${MAPHAPPY_GENERATED}/InterFontData.h "#pragma once\ninline constexpr unsigned char kInterFont[] = {\n${font_bytes}};\n")
+endif()
+
 # ---- Everything except the UI shell, as a library, so the app and the tests share the same compiled code
 add_library(maphappy_core STATIC
   src/VideoDecoder.cpp
@@ -73,6 +84,7 @@ add_library(maphappy_core STATIC
   src/Mesh.cpp)
 target_include_directories(maphappy_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${MAPHAPPY_GENERATED}
   ${FFMPEG_INCLUDE_DIRS}
   ${miniaudio_SOURCE_DIR}
   ${nlohmann_json_SOURCE_DIR}/include)
@@ -88,6 +100,9 @@ if(MSVC)
 endif()
 
 add_executable(MapHappy src/main.cpp)
+if(WIN32)
+  target_sources(MapHappy PRIVATE assets/MapHappy.rc)          # the program's icon in Explorer
+endif()
 target_link_libraries(MapHappy PRIVATE maphappy_core)
 
 if(MAPHAPPY_BUILD_TESTS)

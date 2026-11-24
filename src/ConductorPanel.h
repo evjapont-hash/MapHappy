@@ -1,4 +1,5 @@
 #pragma once
+#include "Theme.h"
 #include "Params.h"
 #include "imgui.h"
 #include <algorithm>
@@ -88,11 +89,10 @@ private:
     static constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-    static constexpr ImU32 kAccent = IM_COL32(38, 198, 208, 255);
-    static constexpr ImU32 kYellow = IM_COL32(236, 224, 80, 255);
-    static constexpr ImU32 kSalmon = IM_COL32(255, 176, 154, 255);
-    static constexpr ImU32 kBeat   = IM_COL32(90, 225, 110, 255);
-    static constexpr ImU32 kMarker = IM_COL32(255, 170, 40, 255);
+    static constexpr ImU32 kAccent = IM_COL32(255, 255, 255, 255);
+    static constexpr ImU32 kClipHead = IM_COL32(150, 150, 150, 255);
+    static constexpr ImU32 kSongHead = IM_COL32(205, 205, 205, 255);
+    static constexpr ImU32 kMarker = IM_COL32(190, 190, 190, 255);
 
     void record(const char* name) { const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax(); rects_[name] = Rect{a.x, a.y, b.x - a.x, b.y - a.y, true}; }
     float tToX(double t) const { return canvasX0_ + (float)((t - scrollT_) * pps_); }
@@ -193,7 +193,7 @@ private:
     void drawRuler(ImVec2 origin) {
         Transport& tr = proj_.transport;
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(origin, ImVec2(canvasX0_ + canvasW_, origin.y + kRulerH), IM_COL32(30, 30, 33, 255));
+        dl->AddRectFilled(origin, ImVec2(canvasX0_ + canvasW_, origin.y + kRulerH), IM_COL32(10, 10, 10, 255));
         dl->AddText(ImVec2(origin.x + 8, origin.y + 11), IM_COL32(170, 170, 175, 255), "Tracks");
 
         dl->PushClipRect(ImVec2(canvasX0_, origin.y), ImVec2(canvasX0_ + canvasW_, origin.y + kRulerH), true);
@@ -326,13 +326,13 @@ private:
         const float top = laneTop + 2, hb = top + kHeaderH, bot = laneTop + kAudioLaneH - 2;
         const AudioAsset* a = proj_.findAsset(c.assetId);
 
-        dl->AddRectFilled(ImVec2(x0, hb), ImVec2(x1, bot), IM_COL32(36, 84, 92, 255));
-        dl->AddRectFilled(ImVec2(x0, top), ImVec2(x1, hb), kSalmon);
+        dl->AddRectFilled(ImVec2(x0, hb), ImVec2(x1, bot), IM_COL32(26, 26, 26, 255));
+        dl->AddRectFilled(ImVec2(x0, top), ImVec2(x1, hb), kSongHead);
         dl->PushClipRect(ImVec2(x0, top), ImVec2(std::max(x0, x1 - 4), hb), true);
         std::string title = a ? a->name : c.name;
         if (a && a->missing) title += "  (file missing)";
         else if (a && a->loading) title += "  (loading...)";
-        dl->AddText(ImVec2(x0 + 4, top + 1), IM_COL32(40, 20, 20, 255), title.c_str());
+        dl->AddText(ImVec2(x0 + 4, top + 1), IM_COL32(0, 0, 0, 255), title.c_str());
         dl->PopClipRect();
 
         // waveform
@@ -340,7 +340,7 @@ private:
             const float bodyTop = hb + 2, bodyBot = bot - 2, mid = (bodyTop + bodyBot) * 0.5f, amp = (bodyBot - bodyTop) * 0.5f - 1.0f;
             const long nb = (long)a->peakMax.size();
             const float xa = std::max(x0, canvasX0_), xb = std::min(x1, cx1);
-            const ImU32 wave = IM_COL32(132, 196, 205, 255);
+            const ImU32 wave = IM_COL32(165, 165, 165, 255);
             for (float x = xa; x < xb; x += 1.0f) {
                 double t0 = std::max(xToT(x) - c.start, 0.0) + c.offset;
                 double t1 = std::min(xToT(x + 1.0f) - c.start, c.duration) + c.offset;
@@ -353,13 +353,13 @@ private:
                 if (hi < lo) continue;
                 dl->AddLine(ImVec2(x + 0.5f, mid - hi * amp), ImVec2(x + 0.5f, mid - lo * amp + 1.0f), wave);
             }
-            // beat grid: green lines, brighter every fourth beat
+            // beat grid: lines, brighter every fourth beat
             if (a->bpm > 0.0 && 60.0 / a->bpm * pps_ >= 4.0) {
                 dl->PushClipRect(ImVec2(xa, hb), ImVec2(xb, bot), true);
                 forEachBeat(c, *a, xToT(canvasX0_), xToT(cx1), [&](double t, long k) {
                     float x = tToX(t);
                     bool bar = ((k % 4) + 4) % 4 == 0;
-                    dl->AddLine(ImVec2(x, hb), ImVec2(x, bot), bar ? IM_COL32(90, 225, 110, 235) : IM_COL32(90, 225, 110, 120), bar ? 1.5f : 1.0f);
+                    dl->AddLine(ImVec2(x, hb), ImVec2(x, bot), bar ? IM_COL32(255, 255, 255, 200) : IM_COL32(255, 255, 255, 70), bar ? 1.5f : 1.0f);
                 });
                 dl->PopClipRect();
             }
@@ -373,36 +373,37 @@ private:
         const bool selected = (c.id == sel_.clip && tk.id == sel_.track);
         const float top = laneTop + 2, hb = top + kHeaderH, bot = laneTop + kLaneH - 2;
 
-        dl->AddRectFilled(ImVec2(x0, hb), ImVec2(x1, bot), IM_COL32(30, 52, 56, 255));
-        dl->AddRectFilled(ImVec2(x0, top), ImVec2(x1, hb), kYellow);
+        dl->AddRectFilled(ImVec2(x0, hb), ImVec2(x1, bot), IM_COL32(30, 30, 30, 255));
+        dl->AddRectFilled(ImVec2(x0, top), ImVec2(x1, hb), kClipHead);
         if (c.ghost) {
             dl->PushClipRect(ImVec2(x0, top), ImVec2(x1, hb), true);
             for (float sx = x0 - kHeaderH; sx < x1; sx += 9.0f)
-                dl->AddLine(ImVec2(sx, hb), ImVec2(sx + kHeaderH, top), IM_COL32(150, 140, 30, 255), 3.0f);
+                dl->AddLine(ImVec2(sx, hb), ImVec2(sx + kHeaderH, top), IM_COL32(95, 95, 95, 255), 3.0f);
             dl->PopClipRect();
         }
         dl->PushClipRect(ImVec2(x0, top), ImVec2(std::max(x0, x1 - 4), hb), true);
-        dl->AddText(ImVec2(x0 + 4, top + 1), IM_COL32(20, 20, 20, 255), c.name.c_str());
+        dl->AddText(ImVec2(x0 + 4, top + 1), IM_COL32(0, 0, 0, 255), c.name.c_str());
         dl->PopClipRect();
 
         double len = c.data->length();
         if (len > 1e-6 && c.duration > len + 1e-6)
             for (double t = len; t < c.duration - 1e-6; t += len) {
                 float lx = tToX(c.start + t);
-                dl->AddLine(ImVec2(lx, hb), ImVec2(lx, bot), IM_COL32(236, 224, 80, 90), 1.0f);
+                dl->AddLine(ImVec2(lx, hb), ImVec2(lx, bot), IM_COL32(255, 255, 255, 70), 1.0f);
             }
 
         std::vector<ImVec2> pts;
         float xa = std::max(x0, canvasX0_), xb = std::min(x1, canvasX0_ + canvasW_);
         for (float x = xa; x < xb; x += 2.0f) pts.push_back(ImVec2(x, valueToY(c.valueAtLocal(xToT(x) - c.start), laneTop, pi)));
         pts.push_back(ImVec2(xb, valueToY(c.valueAtLocal(xToT(xb) - c.start), laneTop, pi)));
-        if (pts.size() > 1) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(210, 215, 220, 255), ImDrawFlags_None, 1.5f);
+        if (pts.size() > 1) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(150, 150, 150, 255), ImDrawFlags_None, 1.5f);
 
         for (size_t k = 0; k < c.data->keys.size(); k++) {
             const Keyframe& kf = c.data->keys[k];
             ImVec2 p = keyPos(c, kf, laneTop, pi);
             bool sel = selected && sel_.key == (int)k;
-            ImU32 fill = sel ? kAccent : IM_COL32(235, 235, 235, 255);
+            ImU32 fill = sel ? kAccent : IM_COL32(185, 185, 185, 255);
+            if (sel) dl->AddCircle(p, 9.0f, kAccent, 0, 1.5f);        // the selected one has a ring
             switch (kf.interp) {
                 case Interp::Linear:
                     dl->AddQuadFilled(ImVec2(p.x, p.y - 6), ImVec2(p.x + 6, p.y), ImVec2(p.x, p.y + 6), ImVec2(p.x - 6, p.y), fill); break;
@@ -443,8 +444,8 @@ private:
             const float top = laneTop_[i], bot = top + laneH_[i];
             const bool trackSel = tk.id == sel_.track;
 
-            dl->AddRectFilled(ImVec2(cp.x, top), ImVec2(canvasX0_, bot - 1), trackSel ? IM_COL32(24, 66, 72, 255) : IM_COL32(36, 36, 40, 255));
-            dl->AddRectFilled(ImVec2(canvasX0_, top), ImVec2(cx1, bot - 1), (i % 2) ? IM_COL32(27, 27, 30, 255) : IM_COL32(31, 31, 34, 255));
+            dl->AddRectFilled(ImVec2(cp.x, top), ImVec2(canvasX0_, bot - 1), trackSel ? IM_COL32(58, 58, 58, 255) : IM_COL32(16, 16, 16, 255));
+            dl->AddRectFilled(ImVec2(canvasX0_, top), ImVec2(cx1, bot - 1), (i % 2) ? IM_COL32(8, 8, 8, 255) : IM_COL32(13, 13, 13, 255));
 
             ImGui::PushID(tk.id);
             std::string label = isAudio ? tk.name : (pi.group.empty() ? pi.label : (pi.group + " / " + pi.label));
@@ -469,9 +470,9 @@ private:
             ImGui::PopClipRect();
             ImGui::SetCursorScreenPos(ImVec2(canvasX0_ - 34, top + 6));
             const bool wasMuted = tk.muted;                  // remember: clicking flips it before we pop the color
-            if (wasMuted) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.75f, 0.30f, 0.20f, 1.0f));
+            if (wasMuted) pushOn();
             if (ImGui::SmallButton("M")) { tk.muted = !tk.muted; dirty(); }
-            if (wasMuted) ImGui::PopStyleColor();
+            if (wasMuted) popOn();
             ImGui::PopID();
 
             if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(ImVec2(cp.x, top), ImVec2(canvasX0_ - 40, bot))) {
@@ -484,7 +485,7 @@ private:
                 for (const AudioClip& c : tk.audioClips) drawAudioClip(dl, tk, c, top);
             } else {
                 if (!tk.clips.empty()) {
-                    ImU32 hold = IM_COL32(150, 155, 160, 140);
+                    ImU32 hold = IM_COL32(150, 150, 150, 140);
                     const Clip& first = tk.clips.front();
                     float y0 = valueToY(first.valueAtLocal(0.0), top, pi);
                     dl->AddLine(ImVec2(canvasX0_, y0), ImVec2(tToX(first.start), y0), hold, 1.0f);
@@ -515,12 +516,12 @@ private:
                     forEachBeat(c, *a, xToT(canvasX0_), xToT(cx1), [&](double tt, long k) {
                         float x = tToX(tt);
                         bool bar = ((k % 4) + 4) % 4 == 0;
-                        dl->AddLine(ImVec2(x, wp.y), ImVec2(x, gridBottom), IM_COL32(90, 225, 110, bar ? 40 : 18));
+                        dl->AddLine(ImVec2(x, wp.y), ImVec2(x, gridBottom), IM_COL32(255, 255, 255, bar ? 36 : 16));
                     });
                 }
         for (const Marker& m : tl.markers) {
             float x = tToX(m.time);
-            dl->AddLine(ImVec2(x, wp.y), ImVec2(x, gridBottom), IM_COL32(255, 170, 40, 90), 1.0f);
+            dl->AddLine(ImVec2(x, wp.y), ImVec2(x, gridBottom), IM_COL32(255, 255, 255, 70), 1.0f);
         }
         dl->PopClipRect();
 
@@ -792,7 +793,7 @@ private:
         Timeline& tl = proj_.timeline;
         Track* tk = tl.findTrack(sel_.track);
         if (!tk) {
-            ImGui::TextDisabled("Select a clip, keyframe or track to edit it here.");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]); ImGui::TextWrapped("Select a clip, keyframe or track to edit it here."); ImGui::PopStyleColor();
         } else if (tk->kind == TrackKind::Audio && sel_.audioClip) {
             if (AudioClip* c = tk->findAudioClip(sel_.audioClip)) inspectAudioClip(*tk, *c);
         } else if (Clip* c = tk->findClip(sel_.clip)) {

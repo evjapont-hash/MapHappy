@@ -69,6 +69,12 @@ int main() {
         auto rms = [&](double a, double b) { double s = 0; const size_t i0 = (size_t)std::llround((a - t0) * kAudioRate), i1 = (size_t)std::llround((b - t0) * kAudioRate); for (size_t i = i0; i < i1; i++) s += (double)ui.captured[i * 2] * ui.captured[i * 2]; return std::sqrt(s / (double)(i1 - i0)); };
         const double l = rms(19.98, 20.0), r = rms(20.0, 20.02);
         return r > 0.2 * l && r > 1e-4; });
+    // opening the saved show loads its song again, and then says nothing more about it
+    const std::string show = ui.home.file("song.maphappy");
+    ui.act([&] { std::string e; saveProjectToFile(p, show, e); ui.editor->markClean(); ui.editor->requestOpenFile(show); });
+    ui.waitUntil("a reopened show loads its song", [&] { return !p.audioAssets.empty() && p.audioAssets[0].buf && samePath(ui.editor->filePath(), show); }, 1500);
+    ui.wait(3);
+    ui.check("...and the loading message goes away", [&] { return p.audioStatus.empty(); });
     ui.run();
     return finishTest();
 }

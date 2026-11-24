@@ -49,4 +49,7 @@ if(MAPHAPPY_GL_TESTS)
   maphappy_test(ui_masks_test      ui/ui_masks_test.cpp)
   maphappy_test(ui_live_test       ui/ui_live_test.cpp)
   maphappy_test(ui_undo_test       ui/ui_undo_test.cpp)
+  add_executable(readme_shots ui/readme_shots.cpp)          # makes the README's pictures; not a test
+  target_link_libraries(readme_shots PRIVATE maphappy_core)
+  target_include_directories(readme_shots PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 endif()

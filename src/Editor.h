@@ -7,6 +7,7 @@
 #include "Presets.h"
 #include "GLUtil.h"
 #include "Project.h"
+#include "Theme.h"
 #include "UndoHistory.h"
 #include "imgui.h"
 #include <algorithm>
@@ -18,39 +19,6 @@
 #include <vector>
 
 inline ImTextureID texId(GLuint t) { return (ImTextureID)(intptr_t)t; }
-inline constexpr ImU32 kAccent    = IM_COL32(38, 198, 208, 255);
-inline constexpr ImU32 kAccentDim = IM_COL32(38, 198, 208, 90);
-
-inline void applyTheme() {
-    ImGui::StyleColorsDark();
-    ImGuiStyle& st = ImGui::GetStyle();
-    st.WindowRounding = 3.0f; st.FrameRounding = 3.0f; st.ChildRounding = 3.0f;
-    st.GrabRounding = 3.0f;   st.TabRounding = 3.0f;
-    st.WindowBorderSize = 1.0f; st.FramePadding = ImVec2(6, 4); st.ItemSpacing = ImVec2(8, 6);
-
-    ImVec4* c = st.Colors;
-    const ImVec4 accent(0.15f, 0.78f, 0.82f, 1.0f);
-    const ImVec4 accentDim(0.10f, 0.45f, 0.50f, 1.0f);
-    c[ImGuiCol_WindowBg]       = ImVec4(0.135f, 0.135f, 0.145f, 1.0f);
-    c[ImGuiCol_ChildBg]        = ImVec4(0.110f, 0.110f, 0.120f, 1.0f);
-    c[ImGuiCol_PopupBg]        = ImVec4(0.140f, 0.140f, 0.150f, 0.98f);
-    c[ImGuiCol_Border]         = ImVec4(0.26f, 0.26f, 0.28f, 1.0f);
-    c[ImGuiCol_TitleBg]        = ImVec4(0.10f, 0.10f, 0.11f, 1.0f);
-    c[ImGuiCol_TitleBgActive]  = ImVec4(0.10f, 0.10f, 0.11f, 1.0f);
-    c[ImGuiCol_FrameBg]        = ImVec4(0.18f, 0.18f, 0.20f, 1.0f);
-    c[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.22f, 0.25f, 1.0f);
-    c[ImGuiCol_FrameBgActive]  = ImVec4(0.25f, 0.25f, 0.28f, 1.0f);
-    c[ImGuiCol_Button]         = ImVec4(0.20f, 0.20f, 0.22f, 1.0f);
-    c[ImGuiCol_ButtonHovered]  = ImVec4(0.26f, 0.26f, 0.29f, 1.0f);
-    c[ImGuiCol_ButtonActive]   = accentDim;
-    c[ImGuiCol_Header]         = accentDim;
-    c[ImGuiCol_HeaderHovered]  = ImVec4(0.12f, 0.55f, 0.60f, 1.0f);
-    c[ImGuiCol_HeaderActive]   = accent;
-    c[ImGuiCol_CheckMark]      = accent;
-    c[ImGuiCol_SliderGrab]     = accent;
-    c[ImGuiCol_SliderGrabActive] = ImVec4(0.30f, 0.90f, 0.95f, 1.0f);
-}
-
 // The whole editor UI: toolbar, left panel (Media / Surfaces), Input + Stage views, Conductor area.
 class Editor {
 public:
@@ -224,24 +192,24 @@ private:
     }
 
     static bool tabButton(const char* label, bool active) {
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.10f, 0.45f, 0.50f, 1.0f));
+        if (active) pushOn();
         bool clicked = ImGui::Button(label, ImVec2(86, 0));
-        if (active) ImGui::PopStyleColor();
+        if (active) popOn();
         return clicked;
     }
 
     // Outline, diagonals and handles for one surface's quad (and its shape). `isStage` = the quad is the output one.
     void drawSurfaceOverlay(const View& v, const Surface& s, const Vec2 q[4], bool selected, bool isStage) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImU32 col = selected ? kAccent : IM_COL32(210, 210, 215, 110);
+        ImU32 col = selected ? kAccent : IM_COL32(255, 255, 255, 110);
         ImVec2 p[4];
         for (int i = 0; i < 4; i++) p[i] = v.toScreen(q[i]);
-        dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, selected ? 1.5f : 1.0f);
+        overlayPolyline(dl, p, 4, col, ImDrawFlags_Closed, selected ? 1.5f : 1.0f);
 
         if (s.shape != Shape::Quad && s.shape != Shape::Line) {
             std::vector<ImVec2> pts;
             for (Vec2 o : outlineInQuad(s, q)) pts.push_back(v.toScreen(o));
-            if (pts.size() > 2) dl->AddPolyline(pts.data(), (int)pts.size(), col, ImDrawFlags_Closed, 2.0f);
+            if (pts.size() > 2) overlayPolyline(dl, pts.data(), (int)pts.size(), col, ImDrawFlags_Closed, 2.0f);
         }
         if (!selected) return;
 
@@ -251,8 +219,8 @@ private:
             dl->AddLine(ImVec2(c.x, c.y - 9), ImVec2(c.x, c.y + 9), kAccent, 1.5f);
         };
         auto cornerHandle = [&](ImVec2 c, float r, ImU32 ring) {
-            dl->AddCircleFilled(c, r, IM_COL32(20, 20, 24, 200));
-            dl->AddCircle(c, r, ring, 0, 2.0f);
+            dl->AddCircleFilled(c, r, IM_COL32(0, 0, 0, 255));
+            dl->AddCircleFilled(c, r - 1.5f, ring);
         };
         if (isStage && s.shape == Shape::Line) {                     // a line: its two ends, and a move handle in the middle
             const ImVec2 a = v.toScreen(s.lineA), b = v.toScreen(s.lineB);
@@ -277,17 +245,17 @@ private:
         moveHandle(v.toScreen(quadCenter(q)));
     }
 
-    // A thin light-yellow outline of where a transformed surface really is, drawn alongside its mapped quad.
+    // A thin, fainter outline of where a transformed surface really is, drawn alongside its mapped quad.
     void drawEffectiveOutline(const View& v, const Surface& s, const Vec2 q[4]) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImU32 col = IM_COL32(255, 238, 130, 240);        // readable against both black and orange pictures
+        const ImU32 col = IM_COL32(255, 255, 255, 150);
         ImVec2 p[4];
         for (int i = 0; i < 4; i++) p[i] = v.toScreen(q[i]);
-        dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 1.0f);
+        overlayPolyline(dl, p, 4, col, ImDrawFlags_Closed, 1.0f);
         if (s.shape != Shape::Quad && s.shape != Shape::Line) {
             std::vector<ImVec2> pts;
             for (Vec2 o : outlineInQuad(s, q)) pts.push_back(v.toScreen(o));
-            if (pts.size() > 2) dl->AddPolyline(pts.data(), (int)pts.size(), col, ImDrawFlags_Closed, 1.5f);
+            if (pts.size() > 2) overlayPolyline(dl, pts.data(), (int)pts.size(), col, ImDrawFlags_Closed, 1.5f);
         }
     }
 
@@ -416,7 +384,7 @@ private:
 
     // ------------------------------------------------------------------ masks (on the stage and in the inspector)
     static constexpr int kHandleMaskCorner = 1000, kHandleMaskMove = 1010, kHandleMaskPoint = 1100;
-    static const ImU32 kMaskColor = IM_COL32(236, 96, 210, 230);
+    static const ImU32 kMaskColor = IM_COL32(255, 255, 255, 255);
 
     Mask* selectedMask(Surface& s) { return (selectedMask_ >= 0 && selectedMask_ < (int)s.masks.size()) ? &s.masks[selectedMask_] : nullptr; }
     static Vec2 boxCorner(const Mask& m, int i) {
@@ -514,13 +482,13 @@ private:
             if (!unitPointsToStage(s, maskOutline(m), pts) || pts.size() < 2) continue;
             std::vector<ImVec2> sp; for (Vec2 p : pts) sp.push_back(v.toScreen(p));
             const bool sel = i == selectedMask_;
-            ImU32 col = sel ? kMaskColor : IM_COL32(236, 96, 210, m.enabled ? 130 : 60);
-            dl->AddPolyline(sp.data(), (int)sp.size(), col, ImDrawFlags_Closed, sel ? 2.0f : 1.0f);
+            ImU32 col = sel ? kMaskColor : IM_COL32(255, 255, 255, m.enabled ? 130 : 60);
+            overlayPolyline(dl, sp.data(), (int)sp.size(), col, ImDrawFlags_Closed, sel ? 2.0f : 1.0f);
             if (!sel) continue;
             std::vector<Vec2> unit, hp;
             if (m.shape == MaskShape::Polygon) unit = m.points; else for (int k = 0; k < 4; k++) unit.push_back(boxCorner(m, k));
             unitPointsToStage(s, unit, hp);
-            for (Vec2 h : hp) { const ImVec2 c = v.toScreen(h); dl->AddRectFilled(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), kMaskColor); dl->AddRect(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), IM_COL32(20, 20, 24, 255)); }
+            for (Vec2 h : hp) { const ImVec2 c = v.toScreen(h); dl->AddRectFilled(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), IM_COL32(0, 0, 0, 255)); dl->AddRect(ImVec2(c.x - 5, c.y - 5), ImVec2(c.x + 5, c.y + 5), kMaskColor, 0.0f, 0, 2.0f); }   // hollow, unlike a surface's handles
         }
     }
 
@@ -601,8 +569,8 @@ private:
             ImGui::PushID(slot);
             if (slot > 0) ImGui::SameLine(0, gap);
             int pushed = 0;
-            if (active)       { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.62f, 0.66f, 1.0f)); pushed++; }
-            else if (pr.used) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.17f, 0.33f, 0.37f, 1.0f)); pushed++; }
+            if (active)       { pushOn(); pushed = 4; }
+            else if (pr.used) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.22f, 0.22f, 1.0f)); pushed++; }
             else              { ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]); pushed++; }   // empty: dimmed
             const std::string label = std::to_string(key) + "\n" + (pr.used ? pr.name : std::string("(empty)"));
             const bool clicked = ImGui::Button(label.c_str(), ImVec2(w, h));
@@ -610,7 +578,7 @@ private:
             recordRect("pad:" + std::to_string(key));
             const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
             if (active && player_.fading())                             // how far the cross-fade has got
-                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x, b.y - 4), ImVec2(a.x + (b.x - a.x) * player_.progress(), b.y), kAccent);
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x, b.y - 4), ImVec2(a.x + (b.x - a.x) * player_.progress(), b.y), IM_COL32(0, 0, 0, 255));
             if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("##padctx"))
                 ImGui::SetTooltip(pr.used ? "Click or press %d to play (fade %.1f s)" : "Click or press Shift+%d to store the current look here", key, (double)pr.fade);
             if (clicked) { if (pr.used) recallPreset(slot); else storePreset(slot); }
@@ -663,10 +631,10 @@ private:
         if (out_) {
             ImGui::SameLine(std::max(width - 90.0f - 214.0f, 0.0f));
             const bool live = out_->isOpen;
-            if (live) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.10f, 0.45f, 0.50f, 1.0f));
+            if (live) pushOn();
             if (ImGui::Button(live ? "Output: ON" : "Output", ImVec2(100, 0))) toggleOutput();
             recordRect("button:Output");
-            if (live) ImGui::PopStyleColor();
+            if (live) popOn();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show or hide the projector output window (F11)");
             ImGui::SameLine();
             const bool black = out_->blackout;
@@ -906,7 +874,7 @@ private:
         float v = d->get(s) * scale;
         const bool animated = isAnimated(s.id, key);
         ImGui::PushID(key);
-        if (animated) ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.95f, 0.75f, 0.2f, 1.0f));
+        if (animated) ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.58f, 0.58f, 0.58f, 1.0f));
         const std::string label = std::string(d->label) + (animated ? " *" : "") + "###slider";
         if (ImGui::SliderFloat(label.c_str(), &v, d->min * scale, d->max * scale, fmt)) d->set(s, std::max(d->min, std::min(d->max, v / scale)));
         if (animated) ImGui::PopStyleColor();
@@ -1172,6 +1140,10 @@ private:
     float drawMenuBar() {
         const float h = ImGui::GetFrameHeight();
         if (ImGui::BeginMainMenuBar()) {
+            const float logo = h - 8.0f;
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            drawLogo(ImGui::GetWindowDrawList(), ImVec2(at.x + 2.0f, ImGui::GetWindowPos().y + 4.0f), logo, kAccent);
+            ImGui::Dummy(ImVec2(logo + 6.0f, 0));
             const bool fileMenuOpen = ImGui::BeginMenu("File");
             recordRect("menu:File");
             if (fileMenuOpen) {
@@ -1209,7 +1181,7 @@ private:
             ImGui::TextDisabled("%s", name.c_str());
             if (!toast_.empty() && ImGui::GetTime() < toastUntil_) {
                 ImGui::SameLine(std::max(120.0f, w - ImGui::CalcTextSize(toast_.c_str()).x - 16.0f));
-                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.0f), "%s", toast_.c_str());
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s", toast_.c_str());
             }
             ImGui::EndMainMenuBar();
         }
@@ -1475,7 +1447,7 @@ private:
                 AudioAsset* a = proj_.findAsset(r.assetId);
                 if (!a) continue;
                 a->loading = false;
-                if (r.ok) { a->buf = r.asset.buf; a->peakMin = std::move(r.asset.peakMin); a->peakMax = std::move(r.asset.peakMax); a->missing = false; }
+                if (r.ok) { a->buf = r.asset.buf; a->peakMin = std::move(r.asset.peakMin); a->peakMax = std::move(r.asset.peakMax); a->missing = false; if (!proj_.audioStatusIsError) proj_.audioStatus.clear(); }
                 else { a->missing = true; proj_.audioStatus = "Couldn't load " + a->name + ": " + r.error; proj_.audioStatusIsError = true; }
             } else if (r.ok) {                                     // a new song: it lands on an audio track at the playhead
                 int id = proj_.addAudioAsset(std::move(r.asset));
@@ -1513,7 +1485,7 @@ private:
             ImGui::BeginGroup();
             bool sel = m->id == selectedMediaId_;
             if (ImGui::ImageButton("##thumb", texId(m->source->texture()), ImVec2(thumbW, thumbH), ImVec2(0, 1), ImVec2(1, 0),
-                                   sel ? ImVec4(0.15f, 0.78f, 0.82f, 1.0f) : ImVec4(0, 0, 0, 1)))
+                                   sel ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1)))
                 selectedMediaId_ = m->id;
             std::string shortName = m->name.size() > 14 ? m->name.substr(0, 13) + "~" : m->name;
             if (m->missing) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", shortName.c_str());
@@ -1659,7 +1631,7 @@ private:
                 ImVec2 mx(v.min.x + v.size.x, v.min.y + v.size.y);
                 dl->AddRectFilled(v.min, mx, IM_COL32(0, 0, 0, 255));
                 dl->AddImage(texId(m->source->texture()), v.min, mx, ImVec2(0, 1), ImVec2(1, 0));
-                dl->AddRect(v.min, mx, IM_COL32(90, 90, 95, 255));
+                dl->AddRect(v.min, mx, IM_COL32(51, 51, 51, 255));
                 drawSurfaceOverlay(v, *s, s->in, true, false);
                 if (!inTransformIsIdentity(*s)) { Vec2 ei[4]; effectiveIn(*s, m->aspect(), ei); drawEffectiveOutline(v, *s, ei); }
                 ImGui::InvisibleButton("##input", ImGui::GetContentRegionAvail());
@@ -1679,7 +1651,7 @@ private:
             if (out_->isOpen) {
                 ImGui::SameLine();
                 const char* where = (out_->activeMonitor >= 0 && out_->activeMonitor < (int)out_->monitors.size()) ? out_->monitors[out_->activeMonitor].name.c_str() : "";
-                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.0f), "  LIVE%s on %s", out_->isFullscreen ? " (fullscreen)" : " (window)", where);
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "  LIVE%s on %s", out_->isFullscreen ? " (fullscreen)" : " (window)", where);
             }
             if (out_->blackout) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "  BLACKOUT"); }
             if (!out_->message.empty()) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "  %s", out_->message.c_str()); }
@@ -1691,7 +1663,7 @@ private:
             ImVec2 mx(v.min.x + v.size.x, v.min.y + v.size.y);
             dl->AddRectFilled(v.min, mx, IM_COL32(0, 0, 0, 255));
             dl->AddImage(texId(stage_.tex), v.min, mx, ImVec2(0, 1), ImVec2(1, 0));
-            dl->AddRect(v.min, mx, IM_COL32(90, 90, 95, 255));
+            dl->AddRect(v.min, mx, IM_COL32(51, 51, 51, 255));
             const float stageAspect = (float)proj_.outW / (float)std::max(1, proj_.outH);
             for (Surface& s : proj_.surfaces)
                 if (proj_.isShown(s) && s.id != proj_.selectedSurfaceId) { Vec2 eo[4]; effectiveOut(s, stageAspect, eo); drawSurfaceOverlay(v, s, eo, false, true); }

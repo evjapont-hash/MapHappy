@@ -11,10 +11,12 @@
 #include "OutputController.h"
 #include "Project.h"
 #include "Renderer.h"
+#include "UiFont.h"
 #include <chrono>
 #include <cstdio>
 #include <string>
 #include <thread>
+#include <vector>
 
 // Path of a file dropped onto the window. GLFW calls this from glfwPollEvents().
 static std::string g_droppedPath;
@@ -81,7 +83,7 @@ static void run(GLFWwindow* window) {
         glfwGetFramebufferSize(window, &fbw, &fbh);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, fbw, fbh);
-        glClearColor(0.07f, 0.07f, 0.08f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
@@ -110,6 +112,15 @@ int main() {
     if (!window) { std::fprintf(stderr, "Window creation failed\n"); glfwTerminate(); return 1; }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
+    {                                             // the logo, for the title bar and the task bar (macOS uses the app bundle's instead)
+        std::vector<unsigned char> small = logoPixels(16), middle = logoPixels(32), big = logoPixels(64);
+        GLFWimage icons[3] = {{16, 16, small.data()}, {32, 32, middle.data()}, {64, 64, big.data()}};
+#ifndef __APPLE__
+        glfwSetWindowIcon(window, 3, icons);
+#else
+        (void)icons;
+#endif
+    }
     glfwSetDropCallback(window, onDrop);
     glfwSetWindowCloseCallback(window, onClose);
 
@@ -121,6 +132,7 @@ int main() {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;         // panels are fixed, so there is nothing to remember
     applyTheme();
+    loadUiFont();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 

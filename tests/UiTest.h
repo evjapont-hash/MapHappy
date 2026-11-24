@@ -13,6 +13,7 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "Editor.h"
+#include "UiFont.h"
 #include "Renderer.h"
 #include "Params.h"
 #include "AudioSync.h"
@@ -40,7 +41,7 @@ public:
     std::vector<float> captured; bool capturing = false;
     static constexpr double kDt = 1.0 / 60.0;
 
-    explicit UiTest(int w = 1600, int h = 900) : gl(w, h), home("ui") {
+    explicit UiTest(int w = 1600, int h = 900, bool appFont = false) : gl(w, h), home("ui") {
         if (!gl.ok) return;
         // USERPROFILE is where Windows finds Documents; without it a test could save into the real user's folders
         setTestEnv("HOME", home.str()); setTestEnv("USERPROFILE", home.str()); setTestEnv("XDG_CONFIG_HOME", home.file("cfg")); setTestEnv("APPDATA", home.file("cfg"));
@@ -49,6 +50,7 @@ public:
         ImGui::GetIO().IniFilename = nullptr;
         ImGui::GetIO().MouseDoubleClickTime = 5.0f;     // the virtual display renders slowly; keep double-clicks reliable
         applyTheme();
+        if (appFont) loadUiFont();                      // (the scripts' positions are for the default font)
         ImGui_ImplGlfw_InitForOpenGL(gl.window, true);
         ImGui_ImplOpenGL3_Init("#version 330");
         renderer = std::make_unique<Renderer>();
