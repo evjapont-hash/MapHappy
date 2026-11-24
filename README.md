@@ -25,6 +25,9 @@ artwork from any commercial product and is not affiliated with one.
 - **3D objects**: a cube, sphere, cylinder, plane or your own OBJ model wears the media as its texture
   (the input region picks which part), is turned and lit in a virtual camera (turn X/Y/Z, size, field
   of view, shading, all animatable), and the result is mapped onto the stage by the quad like any surface.
+- **Folders** to organise surfaces: nest them, drag surfaces and folders onto them (or right-click >
+  Move to), and untick a folder to hide everything inside it. New surfaces go into the selected folder;
+  deleting a folder keeps what was in it.
 - Perspective-correct corner-pin warping (a homography solved per surface and evaluated per pixel on
   the GPU, so grids stay straight, unlike splitting a quad into two triangles).
 - Anti-aliased edges, soft feathering, flips, opacity and **blend modes** (Over, Add, Multiply, Screen).

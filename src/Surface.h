@@ -71,6 +71,7 @@ inline Blend blendFromKey(const std::string& k) { return k == "add" ? Blend::Add
 struct Surface {
     int         id = 0;               // stable for the life of the project; timelines will refer to this
     std::string name;
+    int         folderId = 0;         // the folder it is in (0 = top level); see Project::folders
     Shape       shape   = Shape::Quad;
     bool        visible = true;
     int         mediaId = 1;

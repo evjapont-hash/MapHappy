@@ -57,6 +57,8 @@ int main() {
     ui.click(ui.uiCenter("combo:Model")); ui.wait(2);
     ui.click(UiTest::popupItem("##Combo_", 19)); ui.wait(3);                // the second model: Sphere
     ui.check("the Model list switches the model", [&] { return sel()->meshKind == MeshKind::Sphere; });
+    ui.act([&] { sel()->meshKind = MeshKind::Cube; sel()->rotY = 30; sel()->shading = 0.6f; sel()->mediaId = MediaPool::kPatternId; }); ui.wait(2);
+    ui.shot("object3d");
     ui.run();
     return finishTest();
 }

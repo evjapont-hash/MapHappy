@@ -86,7 +86,7 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
     json surfaces = json::array();
     for (const Surface& s : p.surfaces) {
         json o;
-        o["id"] = s.id; o["name"] = s.name; o["shape"] = shapeKey(s.shape); o["media"] = s.mediaId;
+        o["id"] = s.id; o["name"] = s.name; o["shape"] = shapeKey(s.shape); o["media"] = s.mediaId; o["folder"] = s.folderId;
         o["flipH"] = s.flipH; o["flipV"] = s.flipV;
         o["blend"] = blendKey(s.blend);
         // every animatable value comes from the parameter table; ones a timeline is driving are left out of the
@@ -104,6 +104,14 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
     }
     j["surfaces"] = surfaces;
     if (!forDirtyCheck) j["selectedSurface"] = p.selectedSurfaceId;      // selecting something is not an edit
+
+    json folders = json::array();
+    for (const Folder& f : p.folders) {
+        json o = {{"id", f.id}, {"name", f.name}, {"parent", f.parentId}, {"visible", f.visible}};
+        if (!forDirtyCheck) o["open"] = f.open;                            // opening a folder in the list is not an edit either
+        folders.push_back(o);
+    }
+    j["folders"] = folders;
 
     // audio assets (the sound itself is re-read from the file; we keep the tempo analysis, which may have been corrected by hand)
     json assets = json::array();
@@ -157,7 +165,7 @@ std::string projectToJson(const Project& p, const std::string& projectFilePath, 
 
     j["transport"] = {{"avOffset", p.transport.avOffset}, {"loop", p.transport.loop}};
     Project::Counters c = p.counters();
-    j["counters"] = {{"surface", c.surface}, {"asset", c.asset}, {"shape", json::array()}};
+    j["counters"] = {{"surface", c.surface}, {"asset", c.asset}, {"folder", p.nextFolderId()}, {"shape", json::array()}};
     for (int i = 0; i < kShapeCount; i++) j["counters"]["shape"].push_back(c.shape[i]);
     return j.dump(2);
 }
@@ -231,6 +239,35 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
         }
     }
 
+    std::vector<Folder> folders;
+    std::set<int> folderIds;
+    int maxFolder = 0;
+    if (j.contains("folders") && j["folders"].is_array()) {
+        for (const json& o : j["folders"]) {
+            if (!o.is_object()) continue;
+            Folder f;
+            f.id = get<int>(o, "id", 0);
+            if (f.id <= 0 || folderIds.count(f.id)) { warn("Skipped a folder with a bad or repeated id"); continue; }
+            folderIds.insert(f.id); maxFolder = std::max(maxFolder, f.id);
+            f.name = get<std::string>(o, "name", "Folder " + std::to_string(f.id));
+            f.parentId = get<int>(o, "parent", 0);
+            f.visible = get<bool>(o, "visible", true);
+            f.open = get<bool>(o, "open", true);
+            folders.push_back(f);
+        }
+        for (Folder& f : folders) {
+            if (f.parentId != 0 && !folderIds.count(f.parentId)) { warn("The folder \"" + f.name + "\" was inside a folder that isn't in the project; it is now at the top level"); f.parentId = 0; }
+        }
+        for (Folder& f : folders) {                                         // a folder inside itself (through others) is put at the top
+            int id = f.parentId;
+            for (size_t steps = 0; id != 0; steps++) {
+                if (id == f.id || steps > folders.size()) { warn("The folder \"" + f.name + "\" was inside itself; it is now at the top level"); f.parentId = 0; break; }
+                auto it = std::find_if(folders.begin(), folders.end(), [id](const Folder& x) { return x.id == id; });
+                id = it == folders.end() ? 0 : it->parentId;
+            }
+        }
+    }
+
     std::vector<Surface> surfaces;
     std::set<int> surfaceIds;
     if (j.contains("surfaces") && j["surfaces"].is_array()) {
@@ -242,6 +279,8 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
             surfaceIds.insert(s.id);
             s.name = get<std::string>(o, "name", "Surface-" + std::to_string(s.id));
             s.shape = shapeFromKey(get<std::string>(o, "shape", "quad"));
+            s.folderId = get<int>(o, "folder", 0);
+            if (s.folderId != 0 && !folderIds.count(s.folderId)) { warn("\"" + s.name + "\" was in a folder that isn't in the project; it is now at the top level"); s.folderId = 0; }
             s.flipH = get<bool>(o, "flipH", false); s.flipV = get<bool>(o, "flipV", false);
             s.blend = blendFromKey(get<std::string>(o, "blend", "over"));
             for (const ParamDef& d : paramDefs()) {                 // files from older versions lack the newer keys: they get the defaults
@@ -430,6 +469,8 @@ bool loadProjectFromJson(Project& p, const std::string& text, const std::string&
         if (MediaItem* m = p.media.find(id)) { m->playing = pm.playing; m->loop = pm.loop; }
     }
     p.surfaces = surfaces;
+    p.folders = folders;
+    p.setNextFolderId(std::max(maxFolder + 1, j.contains("counters") && j["counters"].is_object() ? get<int>(j["counters"], "folder", 1) : 1));
     for (Surface& s : p.surfaces) syncLineQuad(s, (float)p.outW / (float)p.outH);
     p.selectedSurfaceId = surfaceIds.count(get<int>(j, "selectedSurface", 0)) ? get<int>(j, "selectedSurface", 0) : (surfaces.empty() ? 0 : surfaces.front().id);
 

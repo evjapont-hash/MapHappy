@@ -421,47 +421,189 @@ private:
         ImGui::SetNextWindowPos(pos);
         ImGui::SetNextWindowSize(size);
         ImGui::Begin("Surfaces", nullptr, kPanel);
+        if (proj_.selectedSurfaceId != lastSelectedSurface_) { lastSelectedSurface_ = proj_.selectedSurfaceId; if (proj_.selectedSurfaceId) selectedFolderId_ = 0; }   // e.g. clicked on the stage
+        if (selectedFolderId_ && !proj_.findFolder(selectedFolderId_)) selectedFolderId_ = 0;
 
-        if (ImGui::Button("+ Quad"))     proj_.addSurface(Shape::Quad, defaultMedia());
+        if (ImGui::Button("+ Quad"))     addSurfaceHere(Shape::Quad);
+        recordRect("button:+ Quad");
         ImGui::SameLine();
-        if (ImGui::Button("+ Circle"))   proj_.addSurface(Shape::Circle, defaultMedia());
+        if (ImGui::Button("+ Circle"))   addSurfaceHere(Shape::Circle);
+        recordRect("button:+ Circle");
         ImGui::SameLine();
-        if (ImGui::Button("+ Triangle")) proj_.addSurface(Shape::Triangle, defaultMedia());
-        if (ImGui::Button("+ Line"))     proj_.addSurface(Shape::Line, defaultMedia());
+        if (ImGui::Button("+ Triangle")) addSurfaceHere(Shape::Triangle);
+        recordRect("button:+ Triangle");
+        if (ImGui::Button("+ Line"))     addSurfaceHere(Shape::Line);
         recordRect("button:+ Line");
         ImGui::SameLine();
-        if (ImGui::Button("+ Freeform")) proj_.addSurface(Shape::Freeform, defaultMedia());
+        if (ImGui::Button("+ Freeform")) addSurfaceHere(Shape::Freeform);
         recordRect("button:+ Freeform");
-        ImGui::SameLine();
-        if (ImGui::Button("+ 3D Object")) proj_.addSurface(Shape::Object3D, defaultMedia());
-        recordRect("button:+ 3D Object");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("A polygon: drag its points on the stage, double-click an edge to add one, right-click a point to delete it");
-
-        const bool has = proj_.selected() != nullptr;
-        ImGui::BeginDisabled(!has);
-        if (ImGui::Button("Delete"))  proj_.removeSurface(proj_.selectedSurfaceId);
         ImGui::SameLine();
+        if (ImGui::Button("+ 3D Object")) addSurfaceHere(Shape::Object3D);
+        recordRect("button:+ 3D Object");
+
+        const bool has = proj_.selected() != nullptr || selectedFolderId_ != 0;
+        ImGui::BeginDisabled(!has);
+        if (ImGui::Button("Delete")) {
+            if (selectedFolderId_) { proj_.removeFolder(selectedFolderId_); selectedFolderId_ = 0; }
+            else proj_.removeSurface(proj_.selectedSurfaceId);
+        }
+        if (ImGui::IsItemHovered() && selectedFolderId_) ImGui::SetTooltip("Deletes the folder; what was in it moves up a level");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(selectedFolderId_ != 0);
         if (ImGui::Button("Up"))      proj_.moveSurface(proj_.selectedSurfaceId, -1);
         ImGui::SameLine();
         if (ImGui::Button("Down"))    proj_.moveSurface(proj_.selectedSurfaceId, +1);
         ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("+ Folder")) { selectedFolderId_ = proj_.addFolder("", currentFolder()); if (Folder* f = proj_.findFolder(selectedFolderId_)) f->open = true; }
+        recordRect("button:+ Folder");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A folder to organise surfaces. Drag surfaces and folders onto it; hiding it hides all it holds.");
 
         ImGui::BeginChild("##surfacelist", ImVec2(0, 190), ImGuiChildFlags_Borders);
-        for (Surface& s : proj_.surfaces) {
-            ImGui::PushID(s.id);
-            ImGui::Checkbox("##visible", &s.visible);
-            ImGui::SameLine();
-            char label[96];
-            std::snprintf(label, sizeof(label), "[%s]  %s", shapeTag(s.shape), s.name.c_str());
-            if (ImGui::Selectable(label, s.id == proj_.selectedSurfaceId)) proj_.selectedSurfaceId = s.id;
-            ImGui::PopID();
+        listOps_.clear();
+        drawFolderContents(0);
+        if (proj_.surfaces.empty() && proj_.folders.empty()) ImGui::TextDisabled("No surfaces yet. Add one above.");
+        if (const ImGuiPayload* pl = ImGui::GetDragDropPayload(); pl && (pl->IsDataType("MH_SURFACE") || pl->IsDataType("MH_FOLDER"))) {
+            ImGui::Selectable("(drop here for the top level)");               // only while dragging
+            recordRect("drop:top");
+            dropTarget(0);
         }
-        if (proj_.surfaces.empty()) ImGui::TextDisabled("No surfaces yet. Add one above.");
         ImGui::EndChild();
+        applyListOps();                                                       // after the list, so nothing it drew moves under it
 
-        if (Surface* s = proj_.selected()) drawSurfaceInspector(*s);
+        if (Folder* f = proj_.findFolder(selectedFolderId_)) drawFolderInspector(*f);
+        else if (Surface* s = proj_.selected()) drawSurfaceInspector(*s);
         else ImGui::TextDisabled("Select a surface to edit it.");
         ImGui::End();
+    }
+
+    // ---- folders in the Surfaces list
+    struct ListOp { enum Kind { MoveSurface, MoveFolder, DeleteFolder } kind; int id; int target; };
+
+    // The folder new surfaces and folders go into: the selected folder, or the selected surface's folder.
+    int currentFolder() const {
+        if (selectedFolderId_) return selectedFolderId_;
+        for (const Surface& s : proj_.surfaces) if (s.id == proj_.selectedSurfaceId) return s.folderId;
+        return 0;
+    }
+    void addSurfaceHere(Shape shape) {
+        const int folder = currentFolder();
+        Surface& s = proj_.addSurface(shape, defaultMedia());
+        s.folderId = folder;
+        selectedFolderId_ = 0; lastSelectedSurface_ = s.id;
+    }
+
+    void dropTarget(int folderId) {
+        if (!ImGui::BeginDragDropTarget()) return;
+        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("MH_SURFACE")) listOps_.push_back({ListOp::MoveSurface, *(const int*)pl->Data, folderId});
+        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("MH_FOLDER"))  listOps_.push_back({ListOp::MoveFolder, *(const int*)pl->Data, folderId});
+        ImGui::EndDragDropTarget();
+    }
+
+    // "Move to" submenu: the top level and every folder, except the folder being moved and what is inside it.
+    void moveToMenu(ListOp::Kind kind, int id, int current, int exclude) {
+        if (!ImGui::BeginMenu("Move to")) return;
+        if (ImGui::MenuItem("Top level", nullptr, current == 0)) listOps_.push_back({kind, id, 0});
+        for (const Folder& f : proj_.folders) {
+            if (exclude && proj_.folderWithin(f.id, exclude)) continue;
+            const std::string label = std::string((size_t)proj_.folderDepth(f.parentId) * 2, ' ') + f.name + "##mv" + std::to_string(f.id);
+            if (ImGui::MenuItem(label.c_str(), nullptr, current == f.id)) listOps_.push_back({kind, id, f.id});
+        }
+        ImGui::EndMenu();
+    }
+
+    void drawFolderContents(int parent) {
+        for (size_t i = 0; i < proj_.folders.size(); i++) if (proj_.folders[i].parentId == parent) drawFolderRow(proj_.folders[i].id);
+        for (Surface& s : proj_.surfaces) if (s.folderId == parent) drawSurfaceRow(s);
+    }
+
+    void drawFolderRow(int folderId) {
+        Folder* f = proj_.findFolder(folderId);
+        if (!f) return;
+        ImGui::PushID(("folder" + std::to_string(f->id)).c_str());
+        ImGui::Checkbox("##fvisible", &f->visible);
+        recordRect("folderVisible:" + f->name);
+        ImGui::SameLine();
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (f->id == selectedFolderId_) flags |= ImGuiTreeNodeFlags_Selected;
+        ImGui::SetNextItemOpen(f->open, ImGuiCond_Always);
+        const bool dim = !proj_.folderShown(f->parentId);
+        if (dim) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        const bool open = ImGui::TreeNodeEx("##folder", flags, "[ ] %s", f->name.c_str());
+        if (dim) ImGui::PopStyleColor();
+        recordRect("folder:" + f->name);
+        f->open = open;
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) { selectedFolderId_ = f->id; }
+        if (ImGui::BeginDragDropSource()) { const int id = f->id; ImGui::SetDragDropPayload("MH_FOLDER", &id, sizeof(id)); ImGui::Text("Folder %s", f->name.c_str()); ImGui::EndDragDropSource(); }
+        dropTarget(f->id);
+        if (ImGui::BeginPopupContextItem("##fctx")) {
+            if (ImGui::MenuItem("New folder inside")) { const int id = f->id; selectedFolderId_ = proj_.addFolder("", id); f = proj_.findFolder(id); if (f) f->open = true; }
+            if (f) moveToMenu(ListOp::MoveFolder, f->id, f->parentId, f->id);
+            if (f && ImGui::MenuItem("Delete folder (keeps what is in it)")) listOps_.push_back({ListOp::DeleteFolder, f->id, 0});
+            ImGui::EndPopup();
+        }
+        if (open) {
+            if (f) drawFolderContents(f->id);
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+
+    void drawSurfaceRow(Surface& s) {
+        ImGui::PushID(s.id);
+        ImGui::Checkbox("##visible", &s.visible);
+        ImGui::SameLine();
+        char label[96];
+        std::snprintf(label, sizeof(label), "[%s]  %s", shapeTag(s.shape), s.name.c_str());
+        const bool dim = !proj_.folderShown(s.folderId);                     // hidden by a folder
+        if (dim) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        if (ImGui::Selectable(label, s.id == proj_.selectedSurfaceId && !selectedFolderId_)) { proj_.selectedSurfaceId = s.id; selectedFolderId_ = 0; lastSelectedSurface_ = s.id; }
+        if (dim) ImGui::PopStyleColor();
+        recordRect("surface:" + s.name);
+        if (ImGui::BeginDragDropSource()) { const int id = s.id; ImGui::SetDragDropPayload("MH_SURFACE", &id, sizeof(id)); ImGui::Text("%s", s.name.c_str()); ImGui::EndDragDropSource(); }
+        if (ImGui::BeginPopupContextItem("##sctx")) {
+            moveToMenu(ListOp::MoveSurface, s.id, s.folderId, 0);
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
+    void applyListOps() {
+        for (const ListOp& op : listOps_) {
+            if (op.kind == ListOp::MoveSurface) proj_.moveSurfaceToFolder(op.id, op.target);
+            else if (op.kind == ListOp::MoveFolder) { if (!proj_.moveFolder(op.id, op.target)) toast("A folder can't go inside itself"); }
+            else { proj_.removeFolder(op.id); if (selectedFolderId_ == op.id) selectedFolderId_ = 0; }
+        }
+        listOps_.clear();
+    }
+
+    void drawFolderInspector(Folder& f) {
+        ImGui::SeparatorText("Folder");
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+        if (ImGui::InputText("Name##folder", buf, sizeof(buf)) && buf[0]) f.name = buf;
+        ImGui::Checkbox("Visible##folder", &f.visible);
+        int count = 0;
+        for (const Surface& s : proj_.surfaces) if (s.folderId != 0 && proj_.folderWithin(s.folderId, f.id)) count++;
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d surface%s inside", count, count == 1 ? "" : "s");
+        const Folder* parent = proj_.findFolder(f.parentId);
+        if (ImGui::BeginCombo("Inside", parent ? parent->name.c_str() : "Top level")) {
+            if (ImGui::Selectable("Top level", f.parentId == 0)) listOps_.push_back({ListOp::MoveFolder, f.id, 0});
+            for (const Folder& o : proj_.folders) {
+                if (proj_.folderWithin(o.id, f.id)) continue;
+                if (ImGui::Selectable((o.name + "##in" + std::to_string(o.id)).c_str(), o.id == f.parentId)) listOps_.push_back({ListOp::MoveFolder, f.id, o.id});
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::Button("Delete folder")) listOps_.push_back({ListOp::DeleteFolder, f.id, 0});
+        recordRect("button:Delete folder");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped("Deleting a folder keeps its surfaces: they move up a level. New surfaces are added to the selected folder.");
+        ImGui::PopStyleColor();
+        applyListOps();
     }
 
     void recordRect(const std::string& name) { const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax(); rects_[name] = Rect{a.x, a.y, b.x - a.x, b.y - a.y, true}; }
@@ -865,7 +1007,7 @@ private:
         deferred_ = a; deferredPath_ = path;
     }
 
-    void resetUiAfterLoad() { conductor_.resetSelection(); selectedMediaId_ = 0; status_.clear(); }
+    void resetUiAfterLoad() { conductor_.resetSelection(); selectedMediaId_ = 0; selectedFolderId_ = 0; status_.clear(); }
 
     void newProject() {
         proj_.resetToEmpty();
@@ -1222,6 +1364,8 @@ private:
     int           leftTab_  = 1;          // 0 = Media, 1 = Surfaces
     int           viewMode_ = 0;          // 0 = both, 1 = input only, 2 = stage only
     int           selectedMediaId_ = 0;
+    int           selectedFolderId_ = 0, lastSelectedSurface_ = 0;   // a selected folder shows the folder inspector
+    std::vector<ListOp> listOps_;
     char          pathBuf_[512];
     std::string   status_;
     Drag          drag_;

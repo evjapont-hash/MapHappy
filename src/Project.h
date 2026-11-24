@@ -7,10 +7,21 @@
 #include <string>
 #include <vector>
 
+// A folder in the Surfaces list. Folders nest; hiding one hides everything inside it. A folder only organises:
+// the stacking order of surfaces stays their order in Project::surfaces.
+struct Folder {
+    int         id = 0;
+    std::string name;
+    int         parentId = 0;         // 0 = top level
+    bool        visible = true;
+    bool        open = true;          // expanded in the list
+};
+
 // Everything that makes up a show's visuals. This is what we will save and load.
 struct Project {
     MediaPool            media;
     std::vector<Surface> surfaces;            // index 0 = front-most, like the list in the UI
+    std::vector<Folder>  folders;             // in the order they are listed
     int selectedSurfaceId = 0;                // 0 = nothing selected
     int outW = 1920, outH = 1080;             // stage (projector) resolution
 
@@ -52,8 +63,67 @@ struct Project {
     }
     Surface* selected() { return find(selectedSurfaceId); }
 
-    // Is the surface drawn? (Its own Visible switch.)
-    bool isShown(const Surface& s) const { return s.visible; }
+    // Is the surface drawn? Its own Visible switch, and that of every folder it is inside.
+    bool isShown(const Surface& s) const { return s.visible && folderShown(s.folderId); }
+
+    // ---- folders
+    Folder* findFolder(int id) { for (auto& f : folders) if (f.id == id) return &f; return nullptr; }
+    const Folder* findFolder(int id) const { for (auto& f : folders) if (f.id == id) return &f; return nullptr; }
+    // A folder (0 = the top level) and all the folders above it are visible.
+    bool folderShown(int id) const {
+        for (int guard = 0; id != 0 && guard <= (int)folders.size(); guard++) {
+            const Folder* f = findFolder(id);
+            if (!f) return true;
+            if (!f->visible) return false;
+            id = f->parentId;
+        }
+        return true;
+    }
+    // Is `inner` the folder `outer`, or somewhere inside it? (0 = the top level contains everything.)
+    bool folderWithin(int inner, int outer) const {
+        if (outer == 0) return true;
+        for (int guard = 0; inner != 0 && guard <= (int)folders.size(); guard++) {
+            if (inner == outer) return true;
+            const Folder* f = findFolder(inner);
+            if (!f) return false;
+            inner = f->parentId;
+        }
+        return false;
+    }
+    int folderDepth(int id) const { int d = 0; for (int guard = 0; id != 0 && guard <= (int)folders.size(); guard++, d++) { const Folder* f = findFolder(id); if (!f) break; id = f->parentId; } return d; }
+
+    int addFolder(const std::string& name = "", int parentId = 0) {
+        Folder f;
+        f.id = nextFolderId_++;
+        f.name = name.empty() ? "Folder " + std::to_string(f.id) : name;
+        f.parentId = findFolder(parentId) ? parentId : 0;
+        folders.push_back(f);
+        return f.id;
+    }
+    // Moves a folder into another (0 = the top level). Refused if that would put it inside itself.
+    bool moveFolder(int id, int newParent) {
+        Folder* f = findFolder(id);
+        if (!f || (newParent != 0 && !findFolder(newParent)) || folderWithin(newParent, id)) return false;
+        f->parentId = newParent;
+        return true;
+    }
+    bool moveSurfaceToFolder(int surfaceId, int folderId) {
+        Surface* s = find(surfaceId);
+        if (!s || (folderId != 0 && !findFolder(folderId))) return false;
+        s->folderId = folderId;
+        return true;
+    }
+    // Deletes a folder but nothing in it: its surfaces and folders move up to its parent.
+    void removeFolder(int id) {
+        Folder* f = findFolder(id);
+        if (!f) return;
+        const int parent = f->parentId;
+        for (Folder& o : folders) if (o.parentId == id) o.parentId = parent;
+        for (Surface& s : surfaces) if (s.folderId == id) s.folderId = parent;
+        folders.erase(std::remove_if(folders.begin(), folders.end(), [id](const Folder& x) { return x.id == id; }), folders.end());
+    }
+    int nextFolderId() const { return nextFolderId_; }
+    void setNextFolderId(int n) { nextFolderId_ = std::max(nextFolderId_, n); }
 
     // Changes a surface's shape, giving the new shape sensible starting points from the current quad.
     void setShape(Surface& s, Shape shape) {
@@ -122,6 +192,8 @@ struct Project {
     // Back to a blank project (keeps the built-in test pattern). Frees GPU textures, so call it between frames.
     void resetToEmpty() {
         surfaces.clear();
+        folders.clear();
+        nextFolderId_ = 1;
         selectedSurfaceId = 0;
         media.clearAllButPattern();
         audioAssets.clear();
@@ -155,6 +227,6 @@ struct Project {
     }
 
 private:
-    int nextSurfaceId_ = 1, nextAssetId_ = 1;
+    int nextSurfaceId_ = 1, nextAssetId_ = 1, nextFolderId_ = 1;
     int shapeCounter_[kShapeCount] = {};
 };

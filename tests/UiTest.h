@@ -80,6 +80,8 @@ public:
     // The same, but as a step in the script, at its place in the sequence. (Calling restart() while a script is being BUILT
     // would restart immediately, before any of the steps around it have run.)
     void restartStep() { act([this] { restart(); }); }
+    // Saves the editor as it looks after the next frame to $MAPHAPPY_TEST_SHOTS/<name>.ppm (if that folder is set).
+    void shot(const std::string& name) { act([this, name] { shotName_ = name; }); wait(1); }
     ImGuiIO& io() { return ImGui::GetIO(); }
 
     // Show the projector output (needs a virtual desktop at least 3840 wide for the two made-up displays).
@@ -187,7 +189,7 @@ private:
         const int w = fbWidth(), h = fbHeight();
         glViewport(0, 0, w, h); glClearColor(0.07f, 0.07f, 0.08f, 1); glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        if (step && step->kind == Step::Check && !getTestEnv("MAPHAPPY_TEST_SHOTS").empty()) { /* shots are taken explicitly via shot() */ }
+        if (!shotName_.empty()) { saveShot(shotName_.c_str(), w, h); shotName_.clear(); }      // after drawing, before the swap
         glfwSwapBuffers(gl.window);
         editor->endFrame();
         ensureStageSize(stage, *project);
@@ -210,5 +212,6 @@ private:
 
     std::deque<Step> steps_;
     ImVec2 mouse_{-1, -1};
+    std::string shotName_;
     std::shared_ptr<const MixSnapshot> lastMix_;
 };
