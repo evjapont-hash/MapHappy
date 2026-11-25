@@ -350,6 +350,7 @@ private:
                     }
                 }
             }
+            if (handle < 0 && isStage) { proj_.selectedSurfaceId = 0; selectedFolderId_ = 0; }          // clicked off every surface
             if (handle >= 0) { drag_.handle = handle; drag_.panel = panel; drag_.surfaceId = surfaceId; drag_.prev = mouse; }
         }
         if (isStage && !editMaskPoints(v)) editFreeformPoints(v);
@@ -361,17 +362,30 @@ private:
             if (drag_.handle == kHandleLineA || drag_.handle == kHandleLineB) {
                 Vec2& end = drag_.handle == kHandleLineA ? s->lineA : s->lineB;
                 const Vec2 other = drag_.handle == kHandleLineA ? s->lineB : s->lineA;
-                if (screenDist(other) > 4.0f) end = mouse;                  // the two ends can't meet (a line needs a direction)
+                if (io.KeyShift) end = scaleAbout(end, other, scaleFactor(other, end, mouse, v.size.x / v.size.y));       // Shift: the line keeps its angle
+                else if (screenDist(other) > 4.0f) end = mouse;                  // the two ends can't meet (a line needs a direction)
                 syncLineQuad(*s, proj_.stageAspect());
             } else if (drag_.handle >= kHandleMaskCorner) {
                 dragMask(*s, mouse);
             } else if (drag_.handle >= kHandlePoint) {
                 const int i = drag_.handle - kHandlePoint;
                 Vec2 unit;
-                if (i < (int)s->poly.size() && stageToUnit(*s, mouse, unit)) s->poly[i] = unit;
+                std::vector<Vec2> pts;
+                if (io.KeyShift && i < (int)s->poly.size() && polyToStage(*s, pts)) {         // Shift: the whole outline scales, about the point furthest away
+                    const Vec2 from = pts[i];
+                    Vec2 anchor = from;
+                    auto dist = [&](Vec2 a) { return std::hypot((a.x - from.x) * v.size.x, (a.y - from.y) * v.size.y); };
+                    for (Vec2 a : pts) if (dist(a) > dist(anchor)) anchor = a;
+                    const float k = scaleFactor(anchor, from, mouse, v.size.x / v.size.y);
+                    for (int c = 0; c < 4; c++) q[c] = scaleAbout(q[c], anchor, k);
+                } else if (i < (int)s->poly.size() && stageToUnit(*s, mouse, unit)) s->poly[i] = unit;
             } else if (drag_.handle < 4) {
                 Vec2 old = q[drag_.handle];
-                q[drag_.handle] = mouse;
+                if (io.KeyShift) {                                  // Shift: the whole shape grows or shrinks, keeping its proportions
+                    const Vec2 anchor = q[(drag_.handle + 2) % 4];
+                    const float k = scaleFactor(anchor, old, mouse, v.size.x / v.size.y);
+                    for (int c = 0; c < 4; c++) q[c] = scaleAbout(q[c], anchor, k);
+                } else q[drag_.handle] = mouse;
                 if (!isConvex(q)) q[drag_.handle] = old;      // a bow-tie or dented quad has no valid projection
             } else {
                 float dx = mouse.x - drag_.prev.x, dy = mouse.y - drag_.prev.y;
@@ -1195,6 +1209,7 @@ private:
             if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) toggleOutput();
             if (!io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_B, false)) out_->blackout = !out_->blackout;
         }
+        if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) deleteSelected();
         if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) liveMode_ = !liveMode_;
         if (liveMode_ && !io.KeyCtrl && !io.KeyAlt) {                  // 1..9, 0 (top row or keypad) play; with Shift they store
             for (int d = 0; d <= 9; d++) {
@@ -1208,6 +1223,31 @@ private:
         else if (ImGui::IsKeyPressed(ImGuiKey_N, false)) requestNew();
         else if (ImGui::IsKeyPressed(ImGuiKey_Z, true)) { if (io.KeyShift) redo(); else undo(); }
         else if (ImGui::IsKeyPressed(ImGuiKey_Y, true)) redo();
+        else if (ImGui::IsKeyPressed(ImGuiKey_C, false)) copySurface();
+        else if (ImGui::IsKeyPressed(ImGuiKey_V, false)) pasteSurface();
+    }
+
+    // Delete or Backspace: the mask being edited, else the surface (the Conductor deletes its own selection).
+    void deleteSelected() {
+        Surface* s = proj_.selected();
+        if (!s || selectedFolderId_ || drag_.handle >= 0 || conductor_.wantsDelete()) return;
+        history_.commit(snapshot());                                  // whatever came just before is its own undo step, and so is this
+        if (selectedMask_ >= 0 && selectedMask_ < (int)s->masks.size()) { s->masks.erase(s->masks.begin() + selectedMask_); selectedMask_ = -1; history_.commit(snapshot()); return; }
+        toast("Deleted " + s->name);
+        proj_.removeSurface(s->id);
+        proj_.selectedSurfaceId = 0;
+        proj_.timelineDirty = true;
+        history_.commit(snapshot());
+    }
+    void copySurface() {
+        if (const Surface* s = proj_.selected()) { copied_ = *s; haveCopy_ = true; pastes_ = 0; toast("Copied " + s->name); }
+    }
+    void pasteSurface() {
+        if (!haveCopy_) return;
+        history_.commit(snapshot());
+        proj_.pasteSurface(copied_, 0.03f * (float)++pastes_);      // each paste a step further, so they don't hide each other
+        history_.commit(snapshot());
+        leftTab_ = 1;
     }
 
     // Notices edits, and writes an autosave a minute after the project first has unsaved changes.
@@ -1704,6 +1744,9 @@ private:
     std::string   filePath_, savedSnapshot_;
     bool          dirty_ = false, exitApproved_ = false, wasEditing_ = false;
     UndoHistory   history_;
+    Surface       copied_;                                          // Ctrl+C
+    bool          haveCopy_ = false;
+    int           pastes_ = 0;
     int           pendingUndo_ = 0;                                 // -1 undo, +1 redo, at the end of this frame
     double        lastDirtyCheck_ = 0.0, lastAutosave_ = 0.0, toastUntil_ = 0.0;
     std::string   toast_;

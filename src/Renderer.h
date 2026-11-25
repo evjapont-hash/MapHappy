@@ -122,7 +122,9 @@ void main() {
     float mdist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     float inMedia = clamp(mdist / max(max(fuv.x, fuv.y), 1e-6) + 1.5, 0.0, 1.0);
 
-    if (edgeAlpha <= 0.0) discard;
+    // Beyond the vanishing line (q.z <= 0) there is no surface, and right next to it s changes so fast that the soft
+    // edge would cover it: anything that far outside is cut, or thin lines appear across the stage.
+    if (edgeAlpha <= 0.0 || q.z <= 0.0 || d < -4.0) discard;
     float a = c.a * uOpacity * edgeAlpha * inMedia;
     if (uFeather > 0.0) a *= smoothstep(0.0, uFeather * 0.5, d);
     if (uMaskCount > 0) a *= maskFactor(s);

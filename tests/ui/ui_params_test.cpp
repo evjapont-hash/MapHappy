@@ -76,7 +76,7 @@ int main() {
     ui.check("with the bar moved down by animation, clicking where it now is selects it", [&] { return p.selectedSurfaceId == 1; });
     ui.act([&] { p.selectedSurfaceId = 2; });
     ui.click(ui.stagePos(0.5f, 0.5f)); ui.wait(2);
-    ui.check("clicking where the bar used to be (now empty) doesn't select it", [&] { return p.selectedSurfaceId == 2; });
+    ui.check("clicking where the bar used to be (now empty) doesn't select it", [&] { return p.selectedSurfaceId == 0; });
     ui.run();
     return finishTest();
 }

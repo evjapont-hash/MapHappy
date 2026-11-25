@@ -1,5 +1,6 @@
 // Drives the web editor like a person would and checks the result.
 import { squareToQuad, mapPoint } from '../js/math.js';
+import * as ops from '../js/editor-ops.js';
 const lines = [];
 let passed = 0, failed = 0;
 const expect = (what, ok) => { lines.push(`${ok ? 'PASS' : 'FAIL'}  ${what}`); ok ? passed++ : failed++; document.getElementById('out').textContent = lines.join('\n') + '\n...'; };
@@ -167,13 +168,67 @@ try {
   expect('dragging inside it moves it', near(mk.min.x, 0.25, 0.02) && near(mk.max.x, 0.85, 0.02));
   click([...masksSec.querySelectorAll('button')].find(b => b.textContent === 'Polygon')); await frames(2);
   const pm = circ.masks[1];
-  pointer(overlay, 'pointerdown', 0, 0); pointer(overlay, 'pointerup', 0, 0);
   const mid = onStage(unitToStage({ x: 0.5, y: 0.7 })), b2 = overlay.getBoundingClientRect();
   overlay.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, clientX: b2.left + mid.x, clientY: b2.top + mid.y })); await frames(1);
   expect('double-clicking a polygon mask edge adds a point', pm.points.length === 4);
   const p0 = onStage(unitToStage(pm.points[0]));
   overlay.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b2.left + p0.x, clientY: b2.top + p0.y })); await frames(1);
   expect('right-clicking one of its points deletes it', pm.points.length === 3);
+
+  // ---- delete, copy and paste, Shift-drag, deselecting
+  const press = (key, code, extra = {}, target = doc.body) => target.dispatchEvent(new win.KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true, ...extra }));
+  ed.newShow(); await frames(2);
+  { const q = ed.selected(), id = q.id;
+    q.out = [{ x: 0.2, y: 0.2 }, { x: 0.4, y: 0.25 }, { x: 0.38, y: 0.5 }, { x: 0.22, y: 0.45 }]; ed.commit(); await frames(2);
+    const size = s => Math.hypot((s.out[1].x - s.out[0].x) * 16, (s.out[1].y - s.out[0].y) * 9), ratio = s => size(s) / Math.hypot((s.out[3].x - s.out[0].x) * 16, (s.out[3].y - s.out[0].y) * 9);
+    const before = JSON.parse(JSON.stringify(q)), to = { x: 0.6, y: 0.75 };
+    pointer(overlay, 'pointerdown', onStage(q.out[2]).x, onStage(q.out[2]).y);
+    for (const t of [0.5, 1]) { const m = onStage({ x: 0.38 + (to.x - 0.38) * t, y: 0.5 + (to.y - 0.5) * t }); pointer(overlay, 'pointermove', m.x, m.y, { shiftKey: true }); }
+    pointer(overlay, 'pointerup', 0, 0); await frames(2);
+    expect('Shift-dragging a corner makes the whole shape bigger, in proportion', size(q) > size(before) * 1.5 && near(ratio(q), ratio(before), 1e-3));
+    expect('...and the opposite corner stays where it was', near(q.out[0].x, 0.2, 1e-6) && near(q.out[0].y, 0.2, 1e-6));
+    pointer(overlay, 'pointerdown', onStage(q.out[2]).x, onStage(q.out[2]).y); { const m = onStage({ x: 0, y: 0 }); pointer(overlay, 'pointermove', m.x, m.y, { shiftKey: true }); } pointer(overlay, 'pointerup', 0, 0); await frames(2);
+    expect('...and it never collapses or turns inside out', q.out[2].x > q.out[0].x && q.out[2].y > q.out[0].y);
+    q.out = before.out; ed.commit(); await frames(2);
+
+    press('c', 'KeyC', { ctrlKey: true }); press('v', 'KeyV', { ctrlKey: true }); await frames(2);
+    const c1 = ed.selected();
+    expect('Ctrl+C, Ctrl+V pastes a copy and selects it', ed.show.surfaces.length === 2 && c1.id !== id && c1.name === 'Quad-1 copy' && near(c1.out[0].x, 0.23, 1e-6) && c1.out[0] !== q.out[0]);
+    press('v', 'KeyV', { ctrlKey: true }); await frames(2);
+    expect('pasting again makes another, a step further', ed.show.surfaces.length === 3 && ed.selected().name === 'Quad-1 copy 2' && near(ed.selected().out[0].x, 0.26, 1e-6));
+    press('Backspace', 'Backspace'); await frames(2);
+    expect('Backspace deletes the selected surface', ed.show.surfaces.length === 2 && !ed.selected());
+    press('z', 'KeyZ', { ctrlKey: true }); await frames(2);
+    expect('undo brings it back, selected', ed.show.surfaces.length === 3 && ed.selected()?.name === 'Quad-1 copy 2');
+    press('Delete', 'Delete'); await frames(2);
+    expect('Delete does too', ed.show.surfaces.length === 2);
+
+    ed.select(id); await frames(2);
+    const name = [...doc.querySelectorAll('#panel input[type=text]')][0];
+    press('Backspace', 'Backspace', {}, name); press('v', 'KeyV', { ctrlKey: true }, name); await frames(1);
+    expect('typing in a box never deletes or pastes surfaces', ed.show.surfaces.length === 2);
+    press('Delete', 'Delete', {}, doc.querySelector('#panel input[type=range]')); await frames(2);
+    expect('...but Delete works after using a slider', ed.show.surfaces.length === 1);
+    press('z', 'KeyZ', { ctrlKey: true }); await frames(2);
+
+    ed.select(id); click(doc.querySelector('.tabs button[data-tab="media"]')); await frames(2);
+    { const m = onStage({ x: 0.9, y: 0.9 }); pointer(overlay, 'pointerdown', m.x, m.y); pointer(overlay, 'pointerup', m.x, m.y); } await frames(2);
+    expect('clicking an empty part of the stage deselects, staying on the same tab', !ed.selected() && ed.panels.tab === 'media');
+    { const m = onStage({ x: 0.3, y: 0.35 }); pointer(overlay, 'pointerdown', m.x, m.y); pointer(overlay, 'pointerup', m.x, m.y); } await frames(2);
+    expect('clicking a surface selects it again', !!ed.selected());
+
+    const s = ed.selected();
+    s.masks.push({ name: 'Mask 1', shape: 0, mode: 0, enabled: true, feather: 0, min: { x: 0.3, y: 0.3 }, max: { x: 0.7, y: 0.7 }, points: [] }); ed.selMask = 0; ed.commit();
+    press('Delete', 'Delete'); await frames(1);
+    expect('while a mask is being edited, Delete deletes the mask, not the surface', ed.selected() === s && s.masks.length === 0);
+    ops.setKey(ed.show, s.id, 'opacity', 1, 0.5); ed.commit();
+    const tr = ed.show.timeline.tracks.find(t => t.kind === 'param'); ops.setKey(ed.show, s.id, 'opacity', 2, 1); ed.selectKey({ track: tr, clip: tr.clips[0], index: 0 });
+    press('Delete', 'Delete'); await frames(1);
+    expect('with a keyframe selected, Delete deletes the keyframe, not the surface', ed.selected() === s && tr.clips[0].keys.length === 1);
+
+    ops.addSurface(ed.show, 'line', 1); const ln = ed.show.surfaces[0]; ed.select(ln.id); const cp = ed.duplicate(ln);
+    expect('a duplicated line is moved aside too', near(cp.lineA.x, ln.lineA.x + 0.03, 1e-6));
+    ed.newShow(); ops.addSurface(ed.show, 'circle', 1); ops.addMarker(ed.show, 1); ed.storePreset(0); ed.commit(); await frames(2); }
 
   // ---- 3D object and lighting
   click(doc.querySelector('.tabs button[data-tab="surfaces"]')); await frames(1);

@@ -6,7 +6,7 @@ import { compileProgram } from '../gl.js';
 import { kFullscreenVS } from '../shaders.gen.js';
 import { squareToQuad, invert3, mapPoint, quadCenter, effectiveOut, effectiveIn } from '../math.js';
 import { isShown } from '../show.js';
-import { isConvex } from '../editor-ops.js';
+import { isConvex, scaleFactor, scaleQuad } from '../editor-ops.js';
 
 const BLIT_FS = `#version 300 es
 precision highp float;
@@ -198,8 +198,9 @@ export class StageView {
     if (e.button !== 0) return;
     const h = this.hit(e);
     if (!h) return;
+    if (h.kind === 'none') { this.ed.deselect(); return; }        // clicked off every surface
     if (h.select) this.ed.select(h.select);
-    if (h.kind === 'none') { return; }
+    else { this.ed.sel.key = null; this.ed.sel.audio = null; }     // (Delete now means the surface)
     this.drag = { ...h, last: this.toNorm(this.rect, e) };
     this.overlay.setPointerCapture(e.pointerId);
   }
@@ -215,7 +216,10 @@ export class StageView {
     const dx = p.x - d.last.x, dy = p.y - d.last.y;
     if (d.kind === 'corner' || d.kind === 'inCorner') {
       const q = d.kind === 'corner' ? s.out : s.in, old = q[d.i];
-      q[d.i] = { x: p.x, y: p.y };
+      if (e.shiftKey) {                                          // Shift: the whole shape grows or shrinks, keeping its proportions
+        const anchor = { ...q[(d.i + 2) % 4] };
+        scaleQuad(q, anchor, scaleFactor(anchor, old, p, this.rect.w / this.rect.h));
+      } else q[d.i] = { x: p.x, y: p.y };
       if (!isConvex(q)) q[d.i] = old;                            // a twisted quad has no valid projection
     } else if (d.kind === 'move') {
       for (const q of s.out) { q.x += dx; q.y += dy; }
@@ -224,7 +228,10 @@ export class StageView {
       for (const q of s.in) { q.x += dx; q.y += dy; }
     } else if (d.kind === 'lineA' || d.kind === 'lineB') {
       const other = d.kind === 'lineA' ? s.lineB : s.lineA;
-      if (Math.hypot(p.x - other.x, p.y - other.y) > 0.003) s[d.kind] = { x: p.x, y: p.y };
+      if (e.shiftKey) {                                          // Shift: the line keeps its angle
+        const k = scaleFactor(other, s[d.kind], p, this.rect.w / this.rect.h);
+        s[d.kind] = { x: other.x + (s[d.kind].x - other.x) * k, y: other.y + (s[d.kind].y - other.y) * k };
+      } else if (Math.hypot(p.x - other.x, p.y - other.y) > 0.003) s[d.kind] = { x: p.x, y: p.y };
     } else if (d.kind.startsWith('mask')) {
       const mk = this.mask(s), u = this.unit(s, p), u0 = this.unit(s, d.last);
       if (!mk || !u || !u0) return;
@@ -245,7 +252,11 @@ export class StageView {
       }
     } else if (d.kind === 'point') {
       const H = squareToQuad(s.out), inv = H && invert3(H);
-      if (inv) s.poly[d.i] = clamp01(mapPoint(inv, p));         // points stay inside the quad, where the picture is
+      if (e.shiftKey) {                                          // Shift: the whole outline scales, about the point furthest away
+        const pts = mapAll(s.out, s.poly), from = pts[d.i], far = q => Math.hypot((q.x - from.x) * this.rect.w, (q.y - from.y) * this.rect.h);
+        const anchor = pts.reduce((a, b) => (far(b) > far(a) ? b : a));
+        scaleQuad(s.out, anchor, scaleFactor(anchor, from, p, this.rect.w / this.rect.h));
+      } else if (inv) s.poly[d.i] = clamp01(mapPoint(inv, p));         // points stay inside the quad, where the picture is
     }
     d.last = p;
     ed.touched();

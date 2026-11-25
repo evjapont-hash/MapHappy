@@ -154,7 +154,10 @@ timeline locked to the music, and the live presets on the number keys. Videos pl
 | 1..9, 0 (Live mode) | Play the preset on that key (top row or keypad) |
 | Shift + 1..9, 0 (Live mode) | Store the current look on that key |
 | Ctrl+N / O / S, Ctrl+Shift+S | New / Open / Save / Save As |
-| Delete | Delete the selected keyframe or clip |
+| Delete / Backspace | Delete what is selected: a surface, mask, keyframe or clip |
+| Ctrl+C / Ctrl+V | Copy / paste the selected surface |
+| Shift while dragging a corner or point | Resize the whole shape without distorting it (a line keeps its angle) |
+| Click an empty part of the stage | Deselect |
 | Double-click a freeform or polygon-mask edge / right-click a point | Add / delete a point |
 | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | Undo / redo (a whole drag is one step) |
 | Ctrl + wheel, Shift + wheel | Zoom / scroll the timeline |

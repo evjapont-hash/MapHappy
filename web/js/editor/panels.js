@@ -52,7 +52,7 @@ export class Panels {
       el('span', { class: 'spacer' }),
       el('button', { icon: 'up', class: 'ghost iconbtn', 'aria-label': 'Move up', disabled: !sel, title: 'Move up: draw it in front of the one above', on: { click: () => { ops.moveSurface(show, sel.id, -1); ed.commit(); this.render(); } } }),
       el('button', { icon: 'down', class: 'ghost iconbtn', 'aria-label': 'Move down', title: 'Move down: draw it behind the one below', disabled: !sel, on: { click: () => { ops.moveSurface(show, sel.id, +1); ed.commit(); this.render(); } } }),
-      el('button', { icon: 'copy', class: 'ghost iconbtn', 'aria-label': 'Duplicate', title: 'Duplicate', disabled: !sel, on: { click: () => { const c = ed.duplicate(sel); ed.select(c.id); ed.commit(); } } }),
+      el('button', { icon: 'copy', class: 'ghost iconbtn', 'aria-label': 'Duplicate', title: 'Duplicate (or Ctrl+C, Ctrl+V)', disabled: !sel, on: { click: () => { const c = ed.duplicate(sel); ed.select(c.id); ed.commit(); } } }),
       el('button', { icon: 'trash', class: 'ghost iconbtn danger', 'aria-label': 'Delete', disabled: !sel && !ed.selFolder, title: ed.selFolder ? 'Delete the folder (what is in it moves up a level)' : 'Delete the surface',
         on: { click: () => { if (ed.selFolder) { ops.removeFolder(show, ed.selFolder); ed.selFolder = 0; } else { ops.removeSurface(show, sel.id); ed.select(0); } ed.commit(); this.render(); } } })));
 

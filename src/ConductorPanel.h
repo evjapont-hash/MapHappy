@@ -34,6 +34,8 @@ public:
 
     void selectAudioClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.audioClip = clipId; }
     void resetSelection() { sel_ = Sel{}; drag_ = Drag{}; scrollT_ = 0.0; }
+    // Is a keyframe or clip selected here, with the Conductor being what was last clicked? Then the Delete key is for it.
+    bool wantsDelete() const { return focused_ && (sel_.clip || sel_.audioClip || sel_.key >= 0); }
     void clearSelection() { sel_ = Sel{}; drag_ = Drag{}; ctx_ = Ctx{}; }        // (after undo: what was selected may be gone)
     void selectTrack(int trackId) { sel_ = Sel{}; sel_.track = trackId; }
     void selectClip(int trackId, int clipId) { sel_ = Sel{}; sel_.track = trackId; sel_.clip = clipId; }
@@ -45,6 +47,7 @@ public:
         ImGui::Begin("Conductor", nullptr, kFlags);
         Transport& tr = proj_.transport;
         ImGuiIO& io = ImGui::GetIO();
+        focused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         rects_.clear();
 
         const bool keysFree = !io.WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
@@ -559,7 +562,7 @@ private:
         }
         updateDrag(io.MousePos);
 
-        if (!io.WantTextInput && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) deleteSelection();
+        if (!io.WantTextInput && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) deleteSelection();
 
         dl->PushClipRect(ImVec2(canvasX0_, wp.y), ImVec2(cx1, wp.y + ws.y), true);
         float px = tToX(tr.time);
@@ -571,6 +574,7 @@ private:
     }
 
     // ---- mouse interaction -----------------------------------------------------------------
+    bool focused_ = false;
     struct Sel { int track = 0, clip = 0, key = -1, audioClip = 0; };
     enum class DragKind { None, Key, Move, Resize, AudioMove, AudioResize };
     struct Drag { DragKind kind = DragKind::None; int track = 0, clip = 0, key = -1; double grab = 0.0; };

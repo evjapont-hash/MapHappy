@@ -40,6 +40,16 @@ inline bool squareToQuad(const Vec2 p[4], Mat3& M) {
 }
 
 // Inverse via the adjugate. Returns false if the matrix is singular.
+// Shift-dragging a point: how much to grow a shape about `anchor`, so the point at `from` follows the mouse (`to`) as far
+// as it can without changing the shape's proportions. aspect = the picture's width / height.
+inline float scaleFactor(Vec2 anchor, Vec2 from, Vec2 to, float aspect) {
+    const float vx = (from.x - anchor.x) * aspect, vy = from.y - anchor.y, len2 = vx * vx + vy * vy;
+    if (len2 < 1e-10f) return 1.0f;
+    const float k = ((to.x - anchor.x) * aspect * vx + (to.y - anchor.y) * vy) / len2;
+    return std::fmax(k, std::fmin(1.0f, 0.01f / std::sqrt(len2)));          // it never collapses or turns inside out
+}
+inline Vec2 scaleAbout(Vec2 p, Vec2 anchor, float k) { return Vec2{anchor.x + (p.x - anchor.x) * k, anchor.y + (p.y - anchor.y) * k}; }
+
 inline bool invert(const Mat3& A, Mat3& out) {
     const float* m = A.m;
     float c00 =  m[4]*m[8] - m[5]*m[7];

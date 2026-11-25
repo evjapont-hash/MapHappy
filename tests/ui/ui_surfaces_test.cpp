@@ -38,7 +38,31 @@ int main() {
     ui.click(ui.stagePos(0.77f, 0.51f));
     ui.check("clicking another surface selects that one", [&] { return p.selectedSurfaceId == 2; });
     ui.click(ui.stagePos(0.02f, 0.95f));
-    ui.check("clicking empty stage keeps the selection", [&] { return p.selectedSurfaceId == 2; });
+    ui.check("clicking empty stage deselects", [&] { return p.selectedSurfaceId == 0; });
+    ui.key(ImGuiKey_Delete);
+    ui.check("...and then Delete deletes nothing", [&] { return p.surfaces.size() == 2; });
+    ui.click(ui.stagePos(0.77f, 0.51f));
+
+    // Shift-drag: the whole shape scales about the opposite corner
+    Surface was;
+    auto side = [&](const Surface& s, int i, int j) { return std::hypot((s.out[i].x - s.out[j].x) * 16.0f, (s.out[i].y - s.out[j].y) * 9.0f); };
+    ui.act([&] { was = *p.find(2); ui.io().AddKeyEvent(ImGuiMod_Shift, true); });
+    ui.drag(outCorner(2, 0), [&ui, &was] { return ui.stagePos(was.out[0].x + 0.08f, was.out[0].y + 0.15f)(); });
+    ui.act([&] { ui.io().AddKeyEvent(ImGuiMod_Shift, false); }); ui.wait(2);
+    ui.check("Shift-dragging a corner scales the whole shape in proportion", [&] { const Surface& s = *p.find(2); return side(s, 0, 1) < side(was, 0, 1) * 0.9f && nearf(side(s, 0, 1) / side(s, 0, 3), side(was, 0, 1) / side(was, 0, 3), 1e-2) && nearf(s.out[2].x, was.out[2].x, 1e-5) && nearf(s.out[2].y, was.out[2].y, 1e-5); });
+    ui.act([&] { *p.find(2) = was; });
+
+    // copy, paste, delete
+    ui.ctrl(ImGuiKey_C); ui.ctrl(ImGuiKey_V); ui.wait(2);
+    ui.check("Ctrl+C, Ctrl+V pastes a copy and selects it", [&] { const Surface* s = p.selected(); return p.surfaces.size() == 3 && s && s->id != 2 && s->name == p.find(2)->name + " copy" && s->shape == Shape::Circle && nearf(s->out[0].x, was.out[0].x + 0.03, 1e-4); });
+    ui.ctrl(ImGuiKey_V); ui.wait(2);
+    ui.check("pasting again makes another, a step further", [&] { const Surface* s = p.selected(); return p.surfaces.size() == 4 && s && s->name == p.find(2)->name + " copy 2" && nearf(s->out[0].x, was.out[0].x + 0.06, 1e-4); });
+    ui.key(ImGuiKey_Backspace);
+    ui.check("Backspace deletes the selected surface", [&] { return p.surfaces.size() == 3 && p.selectedSurfaceId == 0; });
+    ui.ctrl(ImGuiKey_Z); ui.wait(3);
+    ui.check("undo brings it back, selected", [&] { return p.surfaces.size() == 4 && p.selected() && p.selected()->name == p.find(2)->name + " copy 2"; });
+    ui.key(ImGuiKey_Delete); ui.wait(2);
+    ui.check("Delete deletes it too", [&] { return p.surfaces.size() == 3; });
     ui.check("a new circle's input region is square in pixels", [&] { Surface* s = p.find(2); return nearf((s->in[1].x - s->in[0].x) * 1.0f, (s->in[3].y - s->in[0].y) * 1.0f, 0.05); });
     ui.run();
     return finishTest();

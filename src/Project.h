@@ -184,6 +184,26 @@ struct Project {
         selectedSurfaceId = s.id;
         return surfaces.front();
     }
+    // A copy of a surface in front, `offset` away from where the original was; it is selected.
+    Surface& pasteSurface(const Surface& from, float offset) {
+        const Surface src = from;                                  // (`from` may live in the list this grows)
+        Surface& c = addSurface(src.shape, src.mediaId);
+        const int id = c.id, mediaId = c.mediaId;
+        c = src;
+        c.id = id; c.mediaId = mediaId;
+        if (!findFolder(c.folderId)) c.folderId = 0;
+        std::string base = src.name;
+        const size_t at = base.rfind(" copy");
+        if (at != std::string::npos && base.find_first_not_of(" 0123456789", at + 5) == std::string::npos) base.resize(at);
+        base += " copy";
+        auto taken = [&](const std::string& n) { for (const Surface& s : surfaces) if (s.id != id && s.name == n) return true; return false; };
+        c.name = base;
+        for (int n = 2; taken(c.name); n++) c.name = base + " " + std::to_string(n);
+        for (Vec2& q : c.out) { q.x += offset; q.y += offset; }
+        c.lineA.x += offset; c.lineA.y += offset; c.lineB.x += offset; c.lineB.y += offset;
+        syncLineQuad(c, stageAspect());
+        return c;
+    }
     float stageAspect() const { return (float)outW / (float)std::max(1, outH); }
 
     // Default input region: the whole media for a quad, a thin strip across the middle for a line, or a

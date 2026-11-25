@@ -120,6 +120,31 @@ int main() {
 
     { Surface& s = fresh(split); s.flipH = true; draw(); expect("flip horizontal swaps the halves", isColor(px(150, 200), 0, 0, 255, 3) && isColor(px(250, 200), 255, 0, 0, 3)); }
     { Surface& s = fresh(orange); s.visible = false; draw(); expect("hidden surfaces aren't drawn", isColor(px(200, 200), 0, 0, 0, 3)); }
+    // A quad in perspective has a vanishing line somewhere on the stage, where the warp divides by zero: nothing may be drawn there.
+    { const RenderTarget big = makeRenderTarget(1920, 1080);
+      const Vec2 quads[][4] = {{{0.14f, 0.14f}, {0.23f, 0.13f}, {0.226f, 0.297f}, {0.139f, 0.29f}}, {{0.745f, 0.147f}, {0.816f, 0.149f}, {0.818f, 0.29f}, {0.739f, 0.288f}},
+                               {{0.127f, 0.708f}, {0.208f, 0.714f}, {0.219f, 0.93f}, {0.121f, 0.943f}}, {{0.438f, 0.413f}, {0.508f, 0.393f}, {0.517f, 0.466f}, {0.423f, 0.474f}},
+                               {{0.4f, 0.4f}, {0.5f, 0.35f}, {0.6f, 0.7f}, {0.35f, 0.6f}}};
+      for (Shape shape : {Shape::Quad, Shape::Circle, Shape::Triangle, Shape::Freeform}) {
+          int stray = 0, inside = 0;
+          for (const auto& q : quads) {
+              Surface& sf = fresh(orange, shape);
+              if (shape == Shape::Freeform) sf.poly = defaultPolygon();
+              float x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+              for (int i = 0; i < 4; i++) { sf.out[i] = q[i]; x0 = std::min(x0, q[i].x); x1 = std::max(x1, q[i].x); y0 = std::min(y0, q[i].y); y1 = std::max(y1, q[i].y); }
+              renderer.renderStage(big, p);
+              std::vector<unsigned char> d((size_t)big.w * big.h * 4);
+              glBindFramebuffer(GL_FRAMEBUFFER, big.fbo); glReadPixels(0, 0, big.w, big.h, GL_RGBA, GL_UNSIGNED_BYTE, d.data()); glBindFramebuffer(GL_FRAMEBUFFER, 0);
+              for (int y = 0; y < big.h; y++) for (int x = 0; x < big.w; x++) {
+                  if (!d[((size_t)(big.h - 1 - y) * big.w + x) * 4]) continue;
+                  const bool in = x >= x0 * big.w - 2 && x <= x1 * big.w + 2 && y >= y0 * big.h - 2 && y <= y1 * big.h + 2;
+                  in ? inside++ : stray++;
+              }
+          }
+          if (stray) std::printf("  %s: %d stray pixels\n", shapeName(shape), stray);
+          expect("a surface in perspective draws nothing outside itself (no stray lines)", stray == 0 && inside > 10000);
+      }
+      RenderTarget gone = big; destroyRenderTarget(gone); }
     expect("no OpenGL errors anywhere in this test", glGetError() == GL_NO_ERROR);
     destroyRenderTarget(rt);
     return finishTest();

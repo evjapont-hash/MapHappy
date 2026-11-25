@@ -31,6 +31,28 @@ export function removeSurface(show, id) {
   show.timeline.tracks = show.timeline.tracks.filter(t => !(t.path || '').startsWith(`surface/${id}/`));
 }
 
+// Puts a copy of a surface (a plain copy of its data) in front, `offset` away from where the original was.
+export function pasteSurface(show, data, offset = 0.03) {
+  const c = addSurface(show, data.shape, show.mediaList.some(m => m.id === data.media) ? data.media : 1, show.folders.has(data.folder) ? data.folder : 0);
+  const { id, media, folder } = c, base = `${data.name.replace(/ copy( \d+)?$/, '')} copy`;
+  let name = base;
+  for (let n = 2; show.surfaces.some(s => s !== c && s.name === name); n++) name = `${base} ${n}`;
+  Object.assign(c, JSON.parse(JSON.stringify({ ...data, meshUrl: null })), { id, media, folder, name, meshUrl: data.meshUrl });
+  for (const q of c.out) { q.x += offset; q.y += offset; }
+  if (c.shape === 'line') for (const q of [c.lineA, c.lineB]) { q.x += offset; q.y += offset; }
+  return c;
+}
+
+// Shift-dragging a point: how much to grow the shape about `anchor`, so the point at `from` follows the mouse (`to`) as
+// far as it can without changing the shape's proportions. aspect = the picture's width / height.
+export function scaleFactor(anchor, from, to, aspect) {
+  const vx = (from.x - anchor.x) * aspect, vy = from.y - anchor.y, len2 = vx * vx + vy * vy;
+  if (len2 < 1e-10) return 1;
+  const k = ((to.x - anchor.x) * aspect * vx + (to.y - anchor.y) * vy) / len2;
+  return Math.max(k, Math.min(1, 0.01 / Math.sqrt(len2)));       // it never collapses or turns inside out
+}
+export function scaleQuad(q, anchor, k) { for (const v of q) { v.x = anchor.x + (v.x - anchor.x) * k; v.y = anchor.y + (v.y - anchor.y) * k; } }
+
 // delta -1 = towards the front (drawn on top), +1 = towards the back
 export function moveSurface(show, id, delta) {
   const i = show.surfaces.findIndex(s => s.id === id), j = i + delta;

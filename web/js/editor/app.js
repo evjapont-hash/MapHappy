@@ -74,8 +74,11 @@ class Editor {
     if (!this.stageRT || this.stageRT.w !== show.outW || this.stageRT.h !== show.outH) this.stageRT = makeTarget(this.gl, show.outW, show.outH);
     if (this.clock) { const buffers = this.clock.buffers, ctx = this.clock.ctx, t = this.clock.time, playing = this.clock.playing; this.clock.pause(); this.clock = new ShowClock(show); this.clock.ctx = ctx; this.clock.buffers = buffers; this.clock.pos = t; if (playing) this.clock.play(); }
     else this.clock = new ShowClock(show);
-    if (!show.surfaces.some(s => s.id === this.sel.surface)) this.sel.surface = show.surfaces[0]?.id || 0;
-    this.sel.key = null;
+    const back = keepMedia && old ? show.surfaces.find(s => !old.surfaces.some(o => o.id === s.id)) : null;     // undo brought a surface back: select it
+    if (back) this.sel.surface = back.id;
+    else if (!show.surfaces.some(s => s.id === this.sel.surface) && !(keepMedia && !this.sel.surface)) this.sel.surface = show.surfaces[0]?.id || 0;
+    if (!(this.selMask < (this.selected()?.masks.length ?? 0))) this.selMask = -1;
+    this.sel.key = null; this.sel.audio = null;
     this.snapshot = JSON.stringify(writeShow(show));
     if (resetHistory) { this.undo = []; this.redo = []; this.savedSnapshot = this.snapshot; }
     this.panels.render();
@@ -84,7 +87,8 @@ class Editor {
   }
 
   selected() { return this.show.surfaces.find(s => s.id === this.sel.surface) || null; }
-  select(id) { if (this.sel.surface !== id || this.selFolder) { this.sel.surface = id; this.selFolder = 0; this.selMask = -1; this.panels.tab = 'surfaces'; this.panels.render(); } }
+  select(id) { this.sel.key = null; this.sel.audio = null; if (this.sel.surface !== id || this.selFolder) { this.sel.surface = id; this.selFolder = 0; this.selMask = -1; this.panels.tab = 'surfaces'; this.panels.render(); } }
+  deselect() { this.sel.key = null; this.sel.audio = null; if (this.sel.surface || this.selFolder) { this.sel.surface = 0; this.selFolder = 0; this.selMask = -1; this.panels.render(); } }
   selectKey(k) { this.sel.key = k; }
   defaultMedia() { return this.show.mediaList.some(m => m.id === this.selMedia) ? this.selMedia : 1; }
 
@@ -115,11 +119,37 @@ class Editor {
   status(msg) { const s = $('status'); s.textContent = msg; s.classList.add('show'); clearTimeout(this.statusTimer); this.statusTimer = setTimeout(() => s.classList.remove('show'), 6000); }
 
   duplicate(s) {
-    const c = ops.addSurface(this.show, s.shape, s.media, s.folder);
-    const id = c.id, name = `${s.name} copy`;
-    Object.assign(c, JSON.parse(JSON.stringify({ ...s, meshUrl: null })), { id, name, meshUrl: s.meshUrl });
-    for (const q of c.out) { q.x += 0.03; q.y += 0.03; }
-    return c;
+    return ops.pasteSurface(this.show, s);
+  }
+  copySurface() {
+    const s = this.selected();
+    if (!s) return false;
+    this.clipboard = { data: { ...JSON.parse(JSON.stringify({ ...s, meshUrl: null })), meshUrl: s.meshUrl }, pastes: 0 };
+    this.status(`Copied ${s.name}. Ctrl+V pastes it.`);
+    return true;
+  }
+  pasteSurface() {
+    if (!this.clipboard) return false;
+    const c = ops.pasteSurface(this.show, this.clipboard.data, 0.03 * ++this.clipboard.pastes);      // each paste a step further, so they don't hide each other
+    this.select(c.id);
+    this.commit();
+    this.panels.render();
+    return true;
+  }
+  // The Delete key: what was clicked last, i.e. a selected keyframe or song clip, else the mask being edited, else the surface.
+  deleteSelected() {
+    const s = this.selected();
+    if (this.sel.key) { const k = this.sel.key; ops.deleteKey(this.show, k.track, k.clip, k.index); this.sel.key = null; }
+    else if (this.sel.audio) {
+      deleteAudioClip(this.show, this.sel.audio.track, this.sel.audio.clip); this.sel.audio = null;
+      if (this.clock.playing) { this.clock.pause(); this.clock.play(); }
+    }
+    else if (!s || this.selFolder) return false;
+    else if (this.selMask >= 0 && s.masks[this.selMask]) { s.masks.splice(this.selMask, 1); this.selMask = -1; }
+    else { ops.removeSurface(this.show, s.id); this.deselect(); this.status(`Deleted ${s.name}. Ctrl+Z brings it back.`); }
+    this.commit();
+    this.panels.render();
+    return true;
   }
 
   // ---------------------------------------------------------------- playback and sound
@@ -351,9 +381,14 @@ function present(on) {
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.body.classList.contains('present')) present(false); });
 
 // ---- keys (never while typing in a box)
+const TYPING = 'textarea, select, input:not([type=range]):not([type=checkbox]):not([type=color]):not([type=file])';
 addEventListener('keydown', e => {
-  if (e.target.closest?.('input, textarea, select')) return;
-  const k = e.key.toLowerCase();
+  if (e.target.closest?.(TYPING)) return;
+  const k = e.key.toLowerCase(), del = e.code === 'Delete' || e.code === 'Backspace';
+  // a slider or tick box that has the focus keeps its own keys (arrows, Space), but Delete, Undo, Copy... still work
+  if (e.target.closest?.('input') && !del && !e.ctrlKey && !e.metaKey) return;
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === 'c') { if (!String(getSelection()) && ed.copySurface()) e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === 'v') { if (ed.pasteSurface()) e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'z') { ed.undoStep(!e.shiftKey); e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { ed.undoStep(false); e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 's') { ed.saveProject(); e.preventDefault(); return; }
@@ -366,13 +401,8 @@ addEventListener('keydown', e => {
   else if (k === 'm') { ops.addMarker(ed.show, ed.clock.time); ed.commit(); }
   else if (k === 'b') ed.blackout = !ed.blackout;
   else if (k === 's') ed.splitSong();
-  else if ((e.code === 'Delete' || e.code === 'Backspace') && ed.sel.audio && !ed.sel.key) {
-    deleteAudioClip(ed.show, ed.sel.audio.track, ed.sel.audio.clip); ed.sel.audio = null; ed.commit();
-    if (ed.clock.playing) { ed.clock.pause(); ed.clock.play(); }
-  }
-  else if ((e.code === 'Delete' || e.code === 'Backspace') && ed.sel.key) {
-    const s = ed.sel.key; ops.deleteKey(ed.show, s.track, s.clip, s.index); ed.sel.key = null; ed.commit(); ed.panels.render();
-  } else if (ed.live && /^(Digit|Numpad)\d$/.test(e.code)) {
+  else if (del) { if (!ed.deleteSelected()) return; }
+  else if (ed.live && /^(Digit|Numpad)\d$/.test(e.code)) {
     const d = Number(e.code.slice(-1)), slot = d === 0 ? 9 : d - 1;
     if (e.shiftKey) { ed.storePreset(slot); ed.panels.render(); } else ed.playPreset(slot);
   } else return;
