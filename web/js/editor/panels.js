@@ -64,12 +64,13 @@ export class Panels {
       node.addEventListener('drop', e => {
         e.preventDefault(); e.stopPropagation(); node.classList.remove('drop');
         const [kind, id] = (e.dataTransfer.getData('text/plain') || '').split(':');
-        if (kind === 'surface') ops.moveSurfaceToFolder(show, Number(id), folder);
+        if (kind === 'surface') for (const one of id.split(',')) ops.moveSurfaceToFolder(show, Number(one), folder);      // (several, when several were selected)
         else if (kind === 'folder' && !ops.moveFolder(show, Number(id), folder)) { ed.status("A folder can't go inside itself."); return; }
         ed.commit(); this.render();
       });
     };
-    const drag = (node, what) => { node.draggable = true; node.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', what)); };
+    const drag = (node, what) => { node.draggable = true; node.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', typeof what === 'function' ? what() : what)); };
+    const order = [];                                               // the surfaces in the order listed, for Shift-click
     const addRows = (parent, depth) => {
       for (const f of show.folders.values()) {
         if (f.parent !== parent) continue;
@@ -86,11 +87,12 @@ export class Panels {
       for (const s of show.surfaces) {
         if (s.folder !== parent && !(parent === 0 && s.folder && !show.folders.has(s.folder))) continue;
         const dim = !isShownFolder(show, s.folder);
-        const row = el('div', { class: 'item' + (sel === s ? ' selected' : '') + (dim ? ' dimmed' : ''), style: { paddingLeft: `${6 + depth * 14}px` }, 'data-surface': s.id,
-          on: { click: e => { if (e.target.tagName !== 'INPUT') ed.select(s.id); } } },
+        order.push(s.id);
+        const row = el('div', { class: 'item' + (sel === s ? ' selected' : ed.multi.has(s.id) ? ' multi' : '') + (dim ? ' dimmed' : ''), style: { paddingLeft: `${6 + depth * 14}px` }, 'data-surface': s.id,
+          on: { click: e => { if (e.target.tagName !== 'INPUT') this.clickSurface(s.id, e, order); } } },
           checkbox(s.p.visible >= 0.5, v => { this.setParam(s, 'visible', v ? 1 : 0, true); }, { title: 'Visible' }),
           el('span', { class: 'tag', icon: SHAPE_ICONS[s.shape] }), el('span', { class: 'name', text: s.name }));
-        drag(row, `surface:${s.id}`);
+        drag(row, () => `surface:${(ed.multi.has(s.id) && ed.multi.size > 1 ? [...ed.multi] : [s.id]).join(',')}`);
         list.append(row);
       }
     };
@@ -98,9 +100,24 @@ export class Panels {
     if (show.folders.size) { const top = el('div', { class: 'item droptop', text: 'Drop here to move to the top level' }); dropOn(top, 0); list.append(top); }
     if (!show.surfaces.length) list.append(el('div', { class: 'hint', style: { padding: '6px 8px' }, text: 'No surfaces yet: add one above.' }));
     b.append(list);
+    if (ed.multi.size > 1) b.append(el('p', { class: 'hint', text: `${ed.multi.size} surfaces selected: drag them onto a folder together, or press Delete. The inspector shows the last one clicked.` }));
+    else if (show.folders.size && show.surfaces.length > 1) b.append(el('p', { class: 'hint', text: 'Ctrl-click or Shift-click to select several surfaces.' }));
     const folder = ed.selFolder && show.folders.get(ed.selFolder);
     if (folder) this.folderInspector(folder);
     else if (sel) this.inspector(sel); else b.append(el('p', { class: 'hint', text: 'Select a surface (here or on the stage) to edit it.' }));
+  }
+
+  // A click in the list: select it; Ctrl (or Cmd) adds or removes it; Shift selects everything between.
+  clickSurface(id, e, order) {
+    const ed = this.ed;
+    if (e.ctrlKey || e.metaKey) {
+      const ids = new Set(ed.multi);
+      if (ids.has(id) && ids.size > 1) { ids.delete(id); ed.selectMany(ids, id === ed.sel.surface ? [...ids][ids.size - 1] : ed.sel.surface); }
+      else { ids.add(id); ed.selectMany(ids, id); }
+    } else if (e.shiftKey && ed.sel.surface && order.includes(ed.sel.surface)) {
+      const a = order.indexOf(ed.sel.surface), b = order.indexOf(id);
+      ed.selectMany(order.slice(Math.min(a, b), Math.max(a, b) + 1), id);
+    } else ed.select(id);
   }
 
   folderOptions(exclude = 0) {

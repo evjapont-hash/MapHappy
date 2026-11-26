@@ -28,7 +28,8 @@ class Editor {
     this.renderer = new Renderer(this.gl);
     this.files = new FileStore(PUBLISHED);
     this.player = new PresetPlayer();
-    this.sel = { surface: 0, key: null }; this.selMedia = 0; this.selFolder = 0; this.selMask = -1;
+    this.sel = { surface: 0, key: null };
+    this.multi = new Set();                  // surfaces selected together in the list (Ctrl / Shift-click); includes sel.surface this.selMedia = 0; this.selFolder = 0; this.selMask = -1;
     this.snap = true; this.live = false; this.blackout = false;
     this.undo = []; this.redo = []; this.snapshot = ''; this.savedSnapshot = '';
     this.stageView = new StageView(this, $('stage'), $('overlay'));
@@ -79,6 +80,8 @@ class Editor {
     else if (!show.surfaces.some(s => s.id === this.sel.surface) && !(keepMedia && !this.sel.surface)) this.sel.surface = show.surfaces[0]?.id || 0;
     if (!(this.selMask < (this.selected()?.masks.length ?? 0))) this.selMask = -1;
     this.sel.key = null; this.sel.audio = null;
+    this.multi = new Set([...this.multi].filter(id => show.surfaces.some(s => s.id === id)));
+    if (this.sel.surface) this.multi.add(this.sel.surface);
     this.snapshot = JSON.stringify(writeShow(show));
     if (resetHistory) { this.undo = []; this.redo = []; this.savedSnapshot = this.snapshot; }
     this.panels.render();
@@ -87,8 +90,10 @@ class Editor {
   }
 
   selected() { return this.show.surfaces.find(s => s.id === this.sel.surface) || null; }
-  select(id) { this.sel.key = null; this.sel.audio = null; if (this.sel.surface !== id || this.selFolder) { this.sel.surface = id; this.selFolder = 0; this.selMask = -1; this.panels.tab = 'surfaces'; this.panels.render(); } }
-  deselect() { this.sel.key = null; this.sel.audio = null; if (this.sel.surface || this.selFolder) { this.sel.surface = 0; this.selFolder = 0; this.selMask = -1; this.panels.render(); } }
+  select(id) { const many = this.multi.size > 1; this.sel.key = null; this.sel.audio = null; this.multi = new Set(id ? [id] : []); if (this.sel.surface !== id || this.selFolder || many) { this.sel.surface = id; this.selFolder = 0; this.selMask = -1; this.panels.tab = 'surfaces'; this.panels.render(); } }
+  // Several surfaces at once; `primary` is the one the inspector and the stage edit.
+  selectMany(ids, primary) { this.sel.key = null; this.sel.audio = null; this.multi = new Set(ids); this.sel.surface = primary; this.selFolder = 0; this.selMask = -1; this.panels.render(); }
+  deselect() { this.multi = new Set(); this.sel.key = null; this.sel.audio = null; if (this.sel.surface || this.selFolder) { this.sel.surface = 0; this.selFolder = 0; this.selMask = -1; this.panels.render(); } }
   selectKey(k) { this.sel.key = k; }
   defaultMedia() { return this.show.mediaList.some(m => m.id === this.selMedia) ? this.selMedia : 1; }
 
@@ -146,7 +151,11 @@ class Editor {
     }
     else if (!s || this.selFolder) return false;
     else if (this.selMask >= 0 && s.masks[this.selMask]) { s.masks.splice(this.selMask, 1); this.selMask = -1; }
-    else { ops.removeSurface(this.show, s.id); this.deselect(); this.status(`Deleted ${s.name}. Ctrl+Z brings it back.`); }
+    else {
+      const gone = this.show.surfaces.filter(x => x === s || this.multi.has(x.id));
+      for (const g of gone) ops.removeSurface(this.show, g.id);
+      this.deselect(); this.status(`Deleted ${gone.length > 1 ? `${gone.length} surfaces` : s.name}. Ctrl+Z brings ${gone.length > 1 ? 'them' : 'it'} back.`);
+    }
     this.commit();
     this.panels.render();
     return true;
@@ -361,6 +370,41 @@ $('snap').addEventListener('change', e => { ed.snap = e.target.checked; });
 on('marker', () => { ops.addMarker(ed.show, ed.clock.time); ed.commit(); });
 on('split', () => ed.splitSong());
 $('outsize').addEventListener('change', e => { const [w, h] = e.target.value.split('x').map(Number); ed.show.outW = w; ed.show.outH = h; ed.commit(); ed.load(JSON.parse(ed.snapshot), { keepMedia: true, resetHistory: false }); });
+on('zoomIn', () => ed.stageView.zoomBy(1.25));
+on('zoomOut', () => ed.stageView.zoomBy(1 / 1.25));
+on('zoomFit', () => ed.stageView.fit());
+
+// ---- the borders between the panels
+const LAYOUT = 'maphappy-editor-layout', main = document.querySelector('main');
+const layout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT)) || {}; } catch { return {}; } })();
+const sizes = { panel: [340, () => [240, Math.max(260, main.clientWidth - 360)]], timeline: [260, () => [120, Math.max(140, main.clientHeight - 160)]] };
+function setSize(which, v, save = true) {
+  const [lo, hi] = sizes[which][1]();
+  v = Math.round(Math.max(lo, Math.min(hi, v)));
+  layout[which] = v;
+  main.style.setProperty(which === 'panel' ? '--panel-w' : '--tl-h', `${v}px`);
+  if (save) try { localStorage.setItem(LAYOUT, JSON.stringify(layout)); } catch { /* storage blocked */ }
+}
+for (const [id, which, horizontal] of [['splitV', 'panel', true], ['splitH', 'timeline', false]]) {
+  const bar = $(id), cur = () => layout[which] ?? sizes[which][0];
+  bar.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault(); try { bar.setPointerCapture(e.pointerId); } catch { /* not a real pointer */ } bar.classList.add('dragging'); document.body.classList.add('resizing');
+    const start = horizontal ? e.clientX : e.clientY, from = cur();
+    const move = ev => setSize(which, from + (horizontal ? ev.clientX - start : start - ev.clientY), false);
+    const up = () => { bar.removeEventListener('pointermove', move); bar.classList.remove('dragging'); document.body.classList.remove('resizing'); setSize(which, cur()); };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up, { once: true }); bar.addEventListener('lostpointercapture', up, { once: true });
+  });
+  bar.addEventListener('dblclick', () => setSize(which, sizes[which][0]));
+  bar.addEventListener('keydown', e => {                       // the arrow keys move a focused border too
+    const d = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: 1, ArrowDown: -1 }[e.key];
+    if (d === undefined || (horizontal !== (e.key === 'ArrowLeft' || e.key === 'ArrowRight'))) return;
+    setSize(which, cur() + d * (e.shiftKey ? 50 : 10)); e.preventDefault(); e.stopPropagation();
+  });
+}
+for (const which of Object.keys(sizes)) if (layout[which]) setSize(which, layout[which], false);
+addEventListener('resize', () => { for (const which of Object.keys(sizes)) if (layout[which]) setSize(which, layout[which], false); });
+
 $('help').addEventListener('click', () => { $('helpbox').hidden = !$('helpbox').hidden; });
 
 // "Discard unsaved changes?" — a small in-page confirmation (no browser pop-ups).
@@ -400,6 +444,8 @@ addEventListener('keydown', e => {
   else if (e.code === 'ArrowRight') ed.seek(ed.clock.time + (e.shiftKey ? 1 : 1 / 30));
   else if (k === 'm') { ops.addMarker(ed.show, ed.clock.time); ed.commit(); }
   else if (k === 'b') ed.blackout = !ed.blackout;
+  else if (e.key === '+' || e.key === '=') ed.stageView.zoomBy(1.25);
+  else if (e.key === '-' || e.key === '_') ed.stageView.zoomBy(1 / 1.25);
   else if (k === 's') ed.splitSong();
   else if (del) { if (!ed.deleteSelected()) return; }
   else if (ed.live && /^(Digit|Numpad)\d$/.test(e.code)) {

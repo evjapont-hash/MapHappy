@@ -1,13 +1,16 @@
 // The web editor's timeline: a ruler with seconds and beats, the song's waveform, and one row per animated
 // parameter with its keyframes. Click or drag the ruler to move the playhead; drag a keyframe to move it (it snaps
 // to beats and markers); double-click a row to add a keyframe; right-click one for its curve or to delete it.
-// Mouse wheel zooms, Shift + wheel scrolls.
+// Mouse wheel zooms, Shift + wheel scrolls; over the track names the wheel scrolls up and down. Drag a row's bottom
+// edge to make it taller (a tall parameter row shows its curve). Scroll bars along the bottom and the right.
 import { keysOf, moveKey, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack, moveAudioClip, trimAudioClip } from '../editor-ops.js';
 import { evaluateTrack } from '../timeline.js';
-import { parsePath } from '../params.js';
+import { parsePath, PARAMS } from '../params.js';
 import { el } from './ui.js';
 
-const RULER = 24, AUDIO_H = 44, ROW_H = 22, LABEL_W = 190;
+const RULER = 24, AUDIO_H = 64, ROW_H = 24, LABEL_W = 190, SB = 12, EDGE = 4;
+const HEIGHTS = 'maphappy-editor-row-heights';
+const MIN_H = { audio: 32, param: 18 }, MAX_H = 480;
 const C = { bg: '#000', row: '#0a0a0a', rowAlt: '#050505', line: '#1f1f1f', text: '#9a9a9a', dim: '#8a8a8a', accent: '#fff', ruler: '#0a0a0a', labels: '#0a0a0a',
             key: '#b8b8b8', keySel: '#fff', clip: 'rgba(255,255,255,0.07)', wave: 'rgba(255,255,255,0.75)', beat: 'rgba(255,255,255,0.06)', bar: 'rgba(255,255,255,0.14)', marker: '#8a8a8a' };
 
@@ -16,7 +19,8 @@ export class TimelineView {
     this.ed = ed; this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.pps = 60;                 // pixels per second
     this.scroll = 0;               // seconds at the left edge
-    this.vscroll = 0;              // rows scrolled
+    this.vy = 0;                   // pixels scrolled down
+    try { this.heights = new Map(Object.entries(JSON.parse(localStorage.getItem(HEIGHTS)) || {})); } catch { this.heights = new Map(); }
     this.drag = null;
     this.peaks = new Map();        // asset id -> { min, max } per 1/200 s
     canvas.addEventListener('pointerdown', e => this.down(e));
@@ -27,13 +31,46 @@ export class TimelineView {
     canvas.addEventListener('wheel', e => this.wheel(e), { passive: false });
   }
 
+  // Every row (the songs first), where it is drawn: y can be above the ruler (scrolled off) or below the view.
   rows() {
     const tl = this.ed.show.timeline, out = [];
-    let y = RULER;
-    for (const t of tl.tracks.filter(t => t.kind === 'audio')) { out.push({ track: t, y, h: AUDIO_H }); y += AUDIO_H; }
-    const params = tl.tracks.filter(t => t.kind === 'param');
-    params.slice(this.vscroll).forEach(t => { out.push({ track: t, y, h: ROW_H }); y += ROW_H; });
+    let y = RULER - this.vy;
+    for (const t of [...tl.tracks.filter(t => t.kind === 'audio'), ...tl.tracks.filter(t => t.kind === 'param')]) { const h = this.heightOf(t); out.push({ track: t, y, h }); y += h; }
     return out;
+  }
+  rowKey(t) { return t.kind === 'audio' ? `audio:${t.id}` : t.path; }
+  heightOf(t) { return this.heights.get(this.rowKey(t)) ?? (t.kind === 'audio' ? AUDIO_H : ROW_H); }
+  setHeight(t, h) { this.heights.set(this.rowKey(t), Math.round(Math.max(MIN_H[t.kind], Math.min(MAX_H, h)))); }
+  saveHeights() { try { localStorage.setItem(HEIGHTS, JSON.stringify(Object.fromEntries(this.heights))); } catch { /* storage blocked */ } }
+  // The space the rows can use, and how far there is to scroll.
+  view() { const W = this.canvas.clientWidth, H = this.canvas.clientHeight; return { W, H, rowsH: Math.max(1, H - RULER - SB), timeW: Math.max(1, W - LABEL_W - SB) }; }
+  contentH() { let h = 0; for (const t of this.ed.show.timeline.tracks) h += this.heightOf(t); return h; }
+  maxVy() { return Math.max(0, this.contentH() - this.view().rowsH); }
+  // How long the timeline is, for the scroll bar: the show, or a bit past its last song, key or marker.
+  totalT() {
+    const tl = this.ed.show.timeline;
+    let end = Math.max(tl.length || 0, this.ed.clock.time);
+    for (const t of tl.tracks) { for (const c of t.audioClips || []) end = Math.max(end, c.start + c.duration); for (const c of t.clips || []) end = Math.max(end, c.start + c.duration); }
+    for (const m of tl.markers) end = Math.max(end, m.time);
+    return Math.max(end + 5, this.view().timeW / this.pps);
+  }
+  clampScroll() {
+    const v = this.view();
+    this.scroll = Math.max(0, Math.min(this.scroll, Math.max(0, this.totalT() - v.timeW / this.pps)));
+    this.vy = Math.max(0, Math.min(this.vy, this.maxVy()));
+  }
+  // The scroll bars: where their thumbs are (canvas pixels).
+  bars() {
+    const v = this.view(), total = this.totalT(), span = v.timeW / this.pps, ch = this.contentH();
+    const hw = Math.max(28, v.timeW * Math.min(1, span / total)), hx = LABEL_W + (v.timeW - hw) * (total > span ? this.scroll / (total - span) : 0);
+    const vh = Math.max(28, v.rowsH * Math.min(1, v.rowsH / Math.max(1, ch))), mv = this.maxVy(), vyy = RULER + (v.rowsH - vh) * (mv > 0 ? this.vy / mv : 0);
+    return { h: { x: hx, y: v.H - SB, w: hw, h: SB, track: [LABEL_W, v.timeW], range: total - span }, v: { x: v.W - SB, y: vyy, w: SB, h: vh, track: [RULER, v.rowsH], range: mv, on: ch > v.rowsH } };
+  }
+  // The row whose bottom edge is under the point (to drag its height), or null.
+  edgeAt(pt) {
+    const v = this.view();
+    if (pt.y < RULER || pt.y > v.H - SB || pt.x > v.W - SB) return null;
+    return this.rows().find(r => Math.abs(pt.y - (r.y + r.h)) <= EDGE && r.y + r.h > RULER) || null;
   }
   xOf(t) { return LABEL_W + (t - this.scroll) * this.pps; }
   tOf(x) { return Math.max(0, this.scroll + (x - LABEL_W) / this.pps); }
@@ -61,23 +98,27 @@ export class TimelineView {
     const t0 = this.scroll, t1 = this.tOf(W);
     const now = ed.clock.time;
     if (ed.clock.playing && (now > t1 - 0.5 || now < t0)) this.scroll = Math.max(0, now - (W - LABEL_W) / this.pps * 0.1);   // follow the playhead
+    this.clampScroll();
 
-    const rows = this.rows();
-    rows.forEach((r, i) => { c.fillStyle = i % 2 ? C.rowAlt : C.row; c.fillRect(0, r.y, W, r.h); });
+    const rows = this.rows(), bottom = H - SB;
+    c.save(); c.beginPath(); c.rect(0, RULER, W, bottom - RULER); c.clip();          // rows scroll under the ruler
+    rows.forEach((r, i) => { c.fillStyle = i % 2 ? C.rowAlt : C.row; c.fillRect(0, r.y, W, r.h); c.fillStyle = C.line; c.fillRect(0, r.y + r.h - 1, W, 1); });
+    c.restore();
 
     // beat grid and seconds
     const grid = beatGrid(show);
-    c.save(); c.beginPath(); c.rect(LABEL_W, 0, W - LABEL_W, H); c.clip();
+    c.save(); c.beginPath(); c.rect(LABEL_W, RULER, W - LABEL_W - SB, bottom - RULER); c.clip();
     if (grid && grid.beat * this.pps > 6) {
       const first = Math.ceil((t0 - grid.start) / grid.beat);
       for (let b = first; grid.start + b * grid.beat < t1; b++) {
         const x = this.xOf(grid.start + b * grid.beat);
-        c.fillStyle = b % 4 === 0 ? C.bar : C.beat; c.fillRect(Math.round(x), RULER, 1, H - RULER);
+        c.fillStyle = b % 4 === 0 ? C.bar : C.beat; c.fillRect(Math.round(x), RULER, 1, bottom - RULER);
       }
     }
     // clips and keyframes
     for (const r of rows) {
       const t = r.track;
+      if (r.y > bottom || r.y + r.h < RULER) continue;
       if (t.kind === 'audio') {
         for (const clip of t.audioClips) {
           const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration);
@@ -98,8 +139,15 @@ export class TimelineView {
         continue;
       }
       for (const clip of t.clips) { const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration); c.fillStyle = C.clip; c.fillRect(x0, r.y + 3, Math.max(2, x1 - x0), r.h - 6); }
+      const d = PARAMS.get(parsePath(t.path)?.key), tall = d && r.h >= 40 && !d.isBool;
+      const yOf = v => r.y + r.h - 8 - (r.h - 16) * Math.max(0, Math.min(1, (v - d.min) / ((d.max - d.min) || 1)));
+      if (tall) {                                                 // a tall row shows the value's curve, with the keys on it
+        c.beginPath();
+        for (let x = Math.max(LABEL_W, this.xOf(t.clips[0]?.start ?? 0)); x <= W - SB; x += 2) { const y = yOf(evaluateTrack(t, this.tOf(x))); x === Math.max(LABEL_W, this.xOf(t.clips[0]?.start ?? 0)) ? c.moveTo(x, y) : c.lineTo(x, y); }
+        c.strokeStyle = t.muted ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.55)'; c.lineWidth = 1.5; c.stroke();
+      }
       for (const k of keysOf(t)) {
-        const x = this.xOf(k.time), y = r.y + r.h / 2, sel = this.isSelected(t, k);
+        const x = this.xOf(k.time), y = tall ? yOf(k.key.v) : r.y + r.h / 2, sel = this.isSelected(t, k);
         c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x + 6, y); c.lineTo(x, y + 6); c.lineTo(x - 6, y); c.closePath();
         c.fillStyle = t.muted ? C.dim : sel ? C.keySel : C.key; c.fill();
         if (sel) { c.beginPath(); c.moveTo(x, y - 9.5); c.lineTo(x + 9.5, y); c.lineTo(x, y + 9.5); c.lineTo(x - 9.5, y); c.closePath(); c.strokeStyle = C.keySel; c.lineWidth = 1.5; c.stroke(); }   // selected: a ring
@@ -107,8 +155,9 @@ export class TimelineView {
       }
     }
     // markers and playhead
-    for (const m of tl.markers) { const x = this.xOf(m.time); c.fillStyle = C.marker; c.fillRect(Math.round(x), RULER - 8, 1, H); }
+    for (const m of tl.markers) { const x = this.xOf(m.time); c.fillStyle = C.marker; c.fillRect(Math.round(x), RULER, 1, bottom - RULER); }
     c.restore();
+    for (const m of tl.markers) { const x = this.xOf(m.time); if (x >= LABEL_W && x < W - SB) { c.fillStyle = C.marker; c.fillRect(Math.round(x), RULER - 8, 1, 8); } }
 
     // ruler
     c.fillStyle = C.ruler; c.fillRect(0, 0, W, RULER); c.fillStyle = C.line; c.fillRect(0, RULER - 1, W, 1);
@@ -121,21 +170,30 @@ export class TimelineView {
       c.fillText(`${Math.floor(s / 60)}:${(s % 60).toFixed(stepS < 1 ? 2 : 0).padStart(stepS < 1 ? 5 : 2, '0')}`, x + 3, 14);
     }
     const px = this.xOf(now);
-    if (px >= LABEL_W) { c.fillStyle = C.accent; c.fillRect(Math.round(px), 0, 2, H); c.beginPath(); c.moveTo(px - 5, 0); c.lineTo(px + 7, 0); c.lineTo(px + 1, 8); c.fill(); }
+    if (px >= LABEL_W && px < W - SB) { c.fillStyle = C.accent; c.fillRect(Math.round(px), 0, 2, bottom); c.beginPath(); c.moveTo(px - 5, 0); c.lineTo(px + 7, 0); c.lineTo(px + 1, 8); c.fill(); }
 
     // labels
     c.fillStyle = C.labels; c.fillRect(0, 0, LABEL_W, H); c.fillStyle = C.line; c.fillRect(LABEL_W - 1, 0, 1, H);
     c.font = '12px Inter, system-ui, Segoe UI, sans-serif';
     c.fillStyle = C.dim; c.fillText(grid ? `${grid.bpm.toFixed(1)} BPM` : 'Tracks', 8, 16);
+    c.save(); c.beginPath(); c.rect(0, RULER, LABEL_W, bottom - RULER); c.clip();
     for (const r of rows) {
+      c.fillStyle = C.line; c.fillRect(0, r.y + r.h - 1, LABEL_W, 1);
       const t = r.track, selSurface = this.surfaceOf(t) === ed.sel.surface;
       c.fillStyle = t.muted ? C.dim : selSurface ? C.accent : C.text;
       c.fillText(ellipsis(c, trackLabel(show, t), LABEL_W - 58), 8, r.y + r.h / 2 + 4);
       c.fillStyle = t.muted ? '#fff' : C.dim; c.fillText('M', LABEL_W - 36, r.y + r.h / 2 + 4);
       if (t.kind === 'param') { c.fillStyle = C.dim; c.fillText('×', LABEL_W - 18, r.y + r.h / 2 + 4); }
     }
+    c.restore();
     if (!rows.some(r => r.track.kind === 'param'))
       { c.fillStyle = C.dim; c.fillText('No animation yet: press the keyframe button next to any setting to set a keyframe at the playhead.', LABEL_W + 12, (rows.length ? rows[rows.length - 1].y + rows[rows.length - 1].h : RULER) + 18); }
+
+    // the scroll bars
+    const b = this.bars(), hot = this.drag?.kind;
+    c.fillStyle = C.ruler; c.fillRect(0, bottom, W, SB); c.fillRect(W - SB, RULER, SB, bottom - RULER);
+    c.fillStyle = hot === 'hbar' ? '#9a9a9a' : '#4a4a4a'; c.fillRect(b.h.x + 2, b.h.y + 3, b.h.w - 4, b.h.h - 6);
+    if (b.v.on) { c.fillStyle = hot === 'vbar' ? '#9a9a9a' : '#4a4a4a'; c.fillRect(b.v.x + 3, b.v.y + 2, b.v.w - 6, b.v.h - 4); }
   }
 
   surfaceOf(t) { const p = parsePath(t.path); return p ? p.id : 0; }
@@ -143,6 +201,7 @@ export class TimelineView {
 
   // A song clip under the point, and which part: 'start' / 'end' edge (trim) or 'body' (move).
   audioAt(pt) {
+    if (pt.y < RULER || pt.y > this.view().H - SB) return null;
     for (const r of this.rows()) {
       if (r.track.kind !== 'audio' || pt.y < r.y || pt.y >= r.y + r.h) continue;
       for (const clip of r.track.audioClips) {
@@ -155,18 +214,37 @@ export class TimelineView {
   }
 
   keyAt(pt) {
+    if (pt.y < RULER || pt.y > this.view().H - SB) return { row: null, key: null };
     for (const r of this.rows()) {
       if (r.track.kind !== 'param' || pt.y < r.y || pt.y >= r.y + r.h) continue;
       let best = null, bd = 8;
-      for (const k of keysOf(r.track)) { const d = Math.abs(this.xOf(k.time) - pt.x); if (d < bd) { bd = d; best = k; } }
+      const d0 = PARAMS.get(parsePath(r.track.path)?.key), tall = d0 && r.h >= 40 && !d0.isBool;
+      for (const k of keysOf(r.track)) {
+        const ky = tall ? r.y + r.h - 8 - (r.h - 16) * Math.max(0, Math.min(1, (k.key.v - d0.min) / ((d0.max - d0.min) || 1))) : r.y + r.h / 2;
+        const d = Math.abs(this.xOf(k.time) - pt.x) + (tall ? Math.max(0, Math.abs(ky - pt.y) - 6) : 0);
+        if (d < bd) { bd = d; best = k; }
+      }
       return { row: r, key: best };
     }
     return { row: null, key: null };
   }
 
   down(e) {
-    const p = this.local(e), ed = this.ed;
+    const p = this.local(e), ed = this.ed, v = this.view(), b = this.bars();
     this.canvas.setPointerCapture(e.pointerId);
+    if (p.y >= v.H - SB && p.x >= LABEL_W) {                         // the bottom scroll bar: drag its thumb, or click beside it to jump there
+      if (p.x < b.h.x || p.x > b.h.x + b.h.w) this.scroll = Math.max(0, (p.x - LABEL_W - b.h.w / 2) / Math.max(1, v.timeW - b.h.w) * b.h.range);
+      this.drag = { kind: 'hbar', grab: p.x - this.bars().h.x };
+      return;
+    }
+    if (p.x >= v.W - SB && p.y >= RULER) {                           // the right one
+      if (b.v.on && (p.y < b.v.y || p.y > b.v.y + b.v.h)) this.vy = (p.y - RULER - b.v.h / 2) / Math.max(1, v.rowsH - b.v.h) * b.v.range;
+      this.clampScroll();
+      this.drag = { kind: 'vbar', grab: p.y - this.bars().v.y };
+      return;
+    }
+    const edge = this.edgeAt(p);
+    if (edge && e.button === 0) { this.drag = { kind: 'height', track: edge.track, y: p.y, h: edge.h }; return; }   // a row's bottom edge: its height
     if (p.y < RULER && p.x >= LABEL_W) { this.drag = { kind: 'scrub' }; ed.seek(this.tOf(p.x)); return; }
     if (p.x < LABEL_W) {                                              // labels: mute (M), delete (x), or select the surface
       const r = this.rows().find(r => p.y >= r.y && p.y < r.y + r.h);
@@ -193,7 +271,11 @@ export class TimelineView {
   }
   move(e) {
     const p = this.local(e), ed = this.ed;
-    if (!this.drag) { const a = this.audioAt(p); this.canvas.style.cursor = a ? (a.part === 'body' ? 'grab' : 'ew-resize') : 'default'; return; }
+    if (!this.drag) { const a = this.audioAt(p); this.canvas.style.cursor = this.edgeAt(p) ? 'row-resize' : a ? (a.part === 'body' ? 'grab' : 'ew-resize') : 'default'; return; }
+    const v = this.view();
+    if (this.drag.kind === 'hbar') { const w = this.bars().h.w; this.scroll = (p.x - this.drag.grab - LABEL_W) / Math.max(1, v.timeW - w) * this.bars().h.range; this.clampScroll(); return; }
+    if (this.drag.kind === 'vbar') { const h = this.bars().v.h; this.vy = (p.y - this.drag.grab - RULER) / Math.max(1, v.rowsH - h) * this.maxVy(); this.clampScroll(); return; }
+    if (this.drag.kind === 'height') { this.setHeight(this.drag.track, this.drag.h + p.y - this.drag.y); return; }
     const sa = ed.sel.audio;
     if (sa && (this.drag.kind === 'audioMove' || this.drag.kind.startsWith('trim-'))) {
       let t = this.tOf(p.x) - (this.drag.kind === 'audioMove' ? this.drag.grab : 0);
@@ -215,6 +297,7 @@ export class TimelineView {
     }
   }
   up() {
+    if (this.drag?.kind === 'height') this.saveHeights();
     if (this.drag?.moved) {
       this.ed.commit();
       if ((this.drag.kind === 'audioMove' || this.drag.kind.startsWith('trim-')) && this.ed.clock.playing) { this.ed.clock.pause(); this.ed.clock.play(); }   // the sound follows the edit
@@ -226,6 +309,8 @@ export class TimelineView {
   dbl(e) {
     const p = this.local(e);
     if (p.x < LABEL_W || p.y < RULER) return;
+    const edge = this.edgeAt(p);
+    if (edge) { this.heights.delete(this.rowKey(edge.track)); this.saveHeights(); return; }        // double-click a row's edge: its standard height
     const { row, key } = this.keyAt(p);
     if (!row || key) return;
     const path = parsePath(row.track.path);
@@ -257,7 +342,7 @@ export class TimelineView {
     e.preventDefault();
     const p = this.local(e);
     if (e.shiftKey) { this.scroll = Math.max(0, this.scroll + e.deltaY / this.pps); return; }
-    if (p.y > RULER && p.x < LABEL_W) { const n = this.ed.show.timeline.tracks.filter(t => t.kind === 'param').length; this.vscroll = Math.max(0, Math.min(n - 1, this.vscroll + Math.sign(e.deltaY))); return; }
+    if ((p.y > RULER && p.x < LABEL_W) || p.x >= this.view().W - SB) { this.vy += e.deltaMode === 1 ? e.deltaY * 24 : e.deltaY; this.clampScroll(); return; }   // over the names: up and down
     const at = this.tOf(p.x);
     this.pps = Math.max(5, Math.min(800, this.pps * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
     this.scroll = Math.max(0, at - (p.x - LABEL_W) / this.pps);

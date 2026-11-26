@@ -47,7 +47,7 @@
     ed.blackout = true;
     expect('Blackout in the editor darkens the output', await until(() => out.blackoutFromEditor === true));
     ed.blackout = false;
-    expect('no errors were shown in the editor', !edFrame.contentDocument.getElementById('status').dataset.error);
+    expect('no errors were shown in the editor', !edFrame.contentDocument.documentElement.dataset.error);
   } catch (e) { expect(`crashed: ${e.stack || e}`, false); }
   lines.push(failed ? `SOME CHECKS FAILED (${passed} passed, ${failed} failed)` : `ALL CHECKS PASSED (${passed} passed, 0 failed)`);
   log.textContent = lines.join('\n');

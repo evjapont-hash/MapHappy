@@ -20,7 +20,14 @@ export function el(tag, attrs = {}, ...children) {
   return n;
 }
 
-export const clear = n => { while (n.firstChild) n.firstChild.remove(); return n; };
+// Empties a node. A box being typed in is let go of first: its blur handler may update the panel, and doing that
+// while the node is being taken apart is what broke ("The node to be removed is no longer a child of this node").
+export const clear = n => {
+  const a = document.activeElement;
+  if (a && n.contains(a)) { a.commitTyping?.(); a.blur(); }      // (a value being typed counts, even where no blur event comes)
+  n.replaceChildren();
+  return n;
+};
 
 // A labelled control row.
 export const row = (label, ...controls) => el('div', { class: 'row' }, el('label', { text: label }), el('div', { class: 'ctl' }, ...controls));
@@ -42,9 +49,17 @@ export function slider(opts) {
     const shown = opts.typed ? opts.typed(opts.get()) : opts.get();
     const box = el('input', { type: 'number', class: 'typed', value: +Number(shown).toFixed(4), step: 'any' });
     value.replaceWith(box); box.focus(); box.select();
-    const done = ok => { if (ok && box.value !== '') opts.set(opts.untyped ? opts.untyped(Number(box.value)) : Number(box.value), true); box.replaceWith(value); refresh(); };
+    let finished = false;
+    const done = ok => {
+      if (finished) return;                                       // (Enter, then the blur that follows)
+      finished = true;
+      if (box.isConnected) box.replaceWith(value);                // first: setting the value may redraw the whole panel
+      if (ok && box.value !== '') opts.set(opts.untyped ? opts.untyped(Number(box.value)) : Number(box.value), true);
+      refresh();
+    };
     box.addEventListener('keydown', e => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); e.stopPropagation(); });
     box.addEventListener('blur', () => done(true));
+    box.commitTyping = () => done(true);
   });
   if (key) key.addEventListener('click', () => { opts.onKey(); refresh(); });
   function refresh() {

@@ -44,11 +44,14 @@ export class StageView {
     this.mode = 'output';               // 'output' | 'input'
     this.drag = null;
     this.hideHandles = false;           // Present mode
+    this.views = { output: { zoom: 1, x: 0, y: 0 }, input: { zoom: 1, x: 0, y: 0 } };   // zoom, and how far the picture is moved (CSS pixels)
     overlay.addEventListener('pointerdown', e => this.down(e));
     overlay.addEventListener('pointermove', e => this.move(e));
     overlay.addEventListener('pointerup', e => this.up(e));
     overlay.addEventListener('dblclick', e => this.dbl(e));
     overlay.addEventListener('contextmenu', e => this.context(e));
+    overlay.addEventListener('wheel', e => this.wheel(e), { passive: false });
+    overlay.addEventListener('auxclick', e => e.preventDefault());
   }
 
   // What the view shows: the stage, or (input mode) the selected surface's picture.
@@ -60,11 +63,30 @@ export class StageView {
     }
     return { tex: ed.stageRT.tex, w: ed.show.outW, h: ed.show.outH, surface: null };
   }
-  // Where the picture sits in the canvas (CSS pixels, y down).
+  // Where the picture sits in the canvas (CSS pixels, y down): fitted, then zoomed and moved.
   layout(pic) {
-    const W = this.overlay.clientWidth, H = this.overlay.clientHeight, m = 12;
-    const k = Math.min((W - 2 * m) / pic.w, (H - 2 * m) / pic.h), w = Math.max(1, pic.w * k), h = Math.max(1, pic.h * k);
-    return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+    const W = this.overlay.clientWidth, H = this.overlay.clientHeight, m = 12, v = this.hideHandles ? { zoom: 1, x: 0, y: 0 } : this.view();
+    const k = Math.min((W - 2 * m) / pic.w, (H - 2 * m) / pic.h) * v.zoom, w = Math.max(1, pic.w * k), h = Math.max(1, pic.h * k);
+    return { x: (W - w) / 2 + v.x, y: (H - h) / 2 + v.y, w, h };
+  }
+  view() { return this.views[this.picture().surface ? 'input' : 'output']; }
+  // Zoom by a factor, keeping the point under (sx, sy) where it is (the middle of the view by default).
+  zoomBy(f, sx = this.overlay.clientWidth / 2, sy = this.overlay.clientHeight / 2) {
+    const v = this.view(), pic = this.picture(), r = this.layout(pic), W = this.overlay.clientWidth, H = this.overlay.clientHeight;
+    const nx = (sx - r.x) / r.w, ny = (sy - r.y) / r.h;
+    v.zoom = Math.max(0.25, Math.min(32, v.zoom * f));
+    if (Math.abs(v.zoom - 1) < 1e-3) v.zoom = 1;
+    const r2 = this.layout(pic);
+    v.x += sx - (r2.x + nx * r2.w); v.y += sy - (r2.y + ny * r2.h);
+    this.showZoom();
+  }
+  fit() { Object.assign(this.view(), { zoom: 1, x: 0, y: 0 }); this.showZoom(); }
+  showZoom() { const b = document.getElementById('zoomFit'); if (b) b.textContent = `${Math.round(this.view().zoom * 100)}%`; }
+  wheel(e) {
+    e.preventDefault();
+    const b = this.overlay.getBoundingClientRect();
+    const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;           // (lines, or pixels)
+    this.zoomBy(Math.pow(1.0015, -Math.max(-300, Math.min(300, d))), e.clientX - b.left, e.clientY - b.top);
   }
   toScreen(r, p) { return { x: r.x + p.x * r.w, y: r.y + p.y * r.h }; }
   toNorm(r, e) { const b = this.overlay.getBoundingClientRect(); return { x: (e.clientX - b.left - r.x) / r.w, y: (e.clientY - b.top - r.y) / r.h }; }
@@ -123,7 +145,7 @@ export class StageView {
     const ed = this.ed, show = ed.show, aspect = show.outW / show.outH, sel = ed.selected();
     for (const s of show.surfaces) {
       if (!isShown(show, s) || s === sel) continue;
-      this.poly(r, mapAll(effectiveOut(s, aspect), outlineUnit(s)), DIM);
+      this.poly(r, mapAll(effectiveOut(s, aspect), outlineUnit(s)), ed.multi.has(s.id) ? ACCENT : DIM, ed.multi.has(s.id) ? 1.5 : 1);    // also selected (in the list)
     }
     if (!sel) return;
     if (sel.shape === 'line') {
@@ -195,10 +217,11 @@ export class StageView {
   }
 
   down(e) {
+    const pan = () => { this.drag = { kind: 'pan', x: e.clientX, y: e.clientY, moved: false, deselect: e.button === 0 }; this.overlay.setPointerCapture(e.pointerId); this.overlay.style.cursor = 'grabbing'; };
+    if (e.button === 1) { e.preventDefault(); pan(); return; }      // the middle button always moves the view
     if (e.button !== 0) return;
     const h = this.hit(e);
-    if (!h) return;
-    if (h.kind === 'none') { this.ed.deselect(); return; }        // clicked off every surface
+    if (!h || h.kind === 'none') { pan(); return; }               // an empty part: drag to move around; a click deselects (see up)
     if (h.select) this.ed.select(h.select);
     else { this.ed.sel.key = null; this.ed.sel.audio = null; }     // (Delete now means the surface)
     this.drag = { ...h, last: this.toNorm(this.rect, e) };
@@ -208,7 +231,13 @@ export class StageView {
   move(e) {
     if (!this.drag) {                                            // hover feedback
       const h = this.rect && this.hit(e);
-      this.overlay.style.cursor = !h || h.kind === 'none' ? 'default' : h.kind.endsWith('ove') ? 'move' : 'pointer';
+      this.overlay.style.cursor = !h || h.kind === 'none' ? (this.view().zoom > 1 ? 'grab' : 'default') : h.kind.endsWith('ove') ? 'move' : 'pointer';
+      return;
+    }
+    if (this.drag.kind === 'pan') {
+      const d = this.drag, v = this.view(), dx = e.clientX - d.x, dy = e.clientY - d.y;
+      if (!d.moved && Math.hypot(dx, dy) < 4) return;
+      d.moved = true; v.x += dx; v.y += dy; d.x = e.clientX; d.y = e.clientY;
       return;
     }
     const ed = this.ed, s = ed.selected(), p = this.toNorm(this.rect, e), d = this.drag;
@@ -262,7 +291,13 @@ export class StageView {
     ed.touched();
   }
 
-  up() { if (this.drag) { this.drag = null; this.ed.commit(); } }
+  up() {
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    if (d.kind === 'pan') { this.overlay.style.cursor = 'default'; if (!d.moved && d.deselect && !this.pic?.surface) this.ed.deselect(); return; }      // a click off every surface
+    this.ed.commit();
+  }
 
   // The selected surface's selected mask (masks are edited on the stage while one is selected), or null.
   mask(s) { const i = this.ed.selMask; return this.pic?.surface ? null : (i >= 0 && s.masks[i]) || null; }

@@ -228,6 +228,115 @@ try {
 
     ops.addSurface(ed.show, 'line', 1); const ln = ed.show.surfaces[0]; ed.select(ln.id); const cp = ed.duplicate(ln);
     expect('a duplicated line is moved aside too', near(cp.lineA.x, ln.lineA.x + 0.03, 1e-6));
+    }
+
+  // ---- typing a value, then clicking elsewhere (this used to throw "The node to be removed is no longer a child")
+  { ed.newShow(); ops.addSurface(ed.show, 'circle', 1); ed.commit(); await frames(2);
+    const s1 = ed.selected(), other = ed.show.surfaces.find(x => x !== s1).id;
+    const value = [...doc.querySelectorAll('#panel .row.slider')].find(r => r.querySelector('label').textContent === 'Opacity').querySelector('.value');
+    value.click(); await frames(1);
+    const box = doc.querySelector('#panel input.typed'); box.value = '40';
+    let thrown = null;
+    try { ed.select(other); } catch (err) { thrown = err; }
+    await frames(2);
+    expect('clicking elsewhere while typing a value keeps it, without an error', !thrown && near(s1.p.opacity, 0.4, 1e-6) && ed.selected().id === other);
+    win.mhShowError('test message'); const st = doc.getElementById('status');
+    expect('an error message has a close button', !!st.querySelector('button') && st.classList.contains('show'));
+    click(st.querySelector('button'));
+    expect('...that closes it', !st.classList.contains('show') && !st.dataset.error);
+    delete doc.documentElement.dataset.error; }
+
+  // ---- resizing the panels
+  { const main = doc.querySelector('main'), panel = doc.getElementById('panel'), w0 = panel.getBoundingClientRect().width;
+    const bar = doc.getElementById('splitV'), bb = bar.getBoundingClientRect();
+    const pd = (t, type, x, y) => t.dispatchEvent(new win.PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1, pointerId: 7 }));
+    pd(bar, 'pointerdown', bb.left + 4, 300); pd(bar, 'pointermove', bb.left + 104, 300); pd(bar, 'pointerup', bb.left + 104, 300); await frames(2);
+    expect('dragging the border beside the side panel makes it wider', near(panel.getBoundingClientRect().width, w0 + 100, 2));
+    const tlw = doc.getElementById('timelinewrap'), h0 = tlw.getBoundingClientRect().height, hb = doc.getElementById('splitH'), hr = hb.getBoundingClientRect();
+    pd(hb, 'pointerdown', 900, hr.top + 4); pd(hb, 'pointermove', 900, hr.top - 76); pd(hb, 'pointerup', 900, hr.top - 76); await frames(2);
+    expect('dragging the border above the timeline makes it taller', near(tlw.getBoundingClientRect().height, h0 + 80, 2));
+    expect('...and the stage fits in what is left', ed.stageView.rect.y + ed.stageView.rect.h <= doc.getElementById('stagewrap').clientHeight);
+    expect('the sizes are remembered', JSON.parse(win.localStorage.getItem('maphappy-editor-layout')).panel === Math.round(w0 + 100));
+    pd(bar, 'pointerdown', 0, 0); pd(bar, 'pointerup', 0, 0);
+    bar.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true })); hb.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true })); await frames(2);
+    expect('double-clicking a border puts it back', near(panel.getBoundingClientRect().width, 340, 2) && near(tlw.getBoundingClientRect().height, 260, 2)); }
+
+  // ---- zooming and moving around the stage
+  { ed.select(ed.show.surfaces[0].id); await frames(2);
+    const q = ed.selected(); q.out = [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.6, y: 0.6 }, { x: 0.4, y: 0.6 }]; ed.commit(); await frames(2);
+    const r0 = { ...ed.stageView.rect }, at = onStage({ x: 0.4, y: 0.4 }), b = overlay.getBoundingClientRect();
+    overlay.dispatchEvent(new win.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: b.left + at.x, clientY: b.top + at.y, deltaY: -300 })); await frames(2);
+    const r1 = ed.stageView.rect, at1 = onStage({ x: 0.4, y: 0.4 });
+    expect('scrolling on the stage zooms in, keeping the point under the mouse in place', r1.w > r0.w * 1.5 && near(at1.x, at.x, 0.5) && near(at1.y, at.y, 0.5));
+    expect('...and the zoom shows on the button', doc.getElementById('zoomFit').textContent === `${Math.round(ed.stageView.view().zoom * 100)}%`);
+    await drag(overlay, onStage(q.out[2]), onStage({ x: 0.65, y: 0.62 }));
+    expect('corners are still dragged exactly when zoomed in', near(q.out[2].x, 0.65, 0.002) && near(q.out[2].y, 0.62, 0.002));
+    const before = { ...ed.stageView.rect }, empty = onStage({ x: 0.97, y: 0.97 });
+    await drag(overlay, empty, { x: empty.x + 60, y: empty.y + 25 });
+    expect('dragging an empty part of the stage moves the view, and keeps the selection', near(ed.stageView.rect.x, before.x + 60, 1) && near(ed.stageView.rect.y, before.y + 25, 1) && ed.selected() === q);
+    pointer(overlay, 'pointerdown', 20, 20, { button: 1, buttons: 4 }); pointer(overlay, 'pointermove', 50, 20, { button: 1, buttons: 4 }); pointer(overlay, 'pointerup', 50, 20, { button: 1 }); await frames(1);
+    expect('so does dragging with the middle button', near(ed.stageView.rect.x, before.x + 90, 1));
+    click(doc.getElementById('zoomFit')); await frames(1);
+    expect('the % button fits the whole picture again', near(ed.stageView.rect.x, r0.x, 0.5) && near(ed.stageView.rect.w, r0.w, 0.5));
+    click(doc.getElementById('zoomIn')); click(doc.getElementById('zoomOut')); await frames(1);
+    expect('+ and - zoom in and out', near(ed.stageView.rect.w, r0.w, 0.5));
+    const e2 = onStage({ x: 0.1, y: 0.9 }); pointer(overlay, 'pointerdown', e2.x, e2.y); pointer(overlay, 'pointerup', e2.x, e2.y); await frames(1);
+    expect('a click (not a drag) on an empty part still deselects', !ed.selected()); }
+
+  // ---- taller timeline rows, and the scroll bars
+  { ed.newShow(); const sh = ed.show, s1 = ed.show.surfaces[0];
+    for (const [i, key] of ['opacity', 'posX', 'posY', 'rotation', 'hue', 'scale', 'saturation', 'contrast', 'brightness', 'feather', 'tintR', 'tintG'].entries()) { ops.setKey(sh, s1.id, key, 0, 0.2); ops.setKey(sh, s1.id, key, 30 + i, 0.8); }
+    ops.addSong(sh, 'beat.wav', 'music/beat.wav', 60); ed.commit(); await frames(2);
+    const tl = doc.getElementById('timeline'), tv = ed.timelineView, atrack = sh.timeline.tracks.find(t => t.kind === 'audio');
+    tv.heights.clear(); tv.vy = 0; tv.scroll = 0; tv.pps = 60; await frames(1);
+    const ar = () => tv.rows().find(r => r.track === atrack), h0 = ar().h;
+    await drag(tl, { x: 400, y: ar().y + ar().h - 1 }, { x: 400, y: ar().y + ar().h + 59 });
+    expect('dragging the song row\'s bottom edge makes it taller', near(ar().h, h0 + 60, 1));
+    const op = () => tv.rows().find(r => r.track.path?.endsWith('/opacity'));
+    await drag(tl, { x: 400, y: op().y + op().h - 1 }, { x: 400, y: op().y + op().h + 40 });
+    expect('...and a parameter row too', op().h >= 60);
+    tv.scroll = 25; await frames(1);
+    const k = op().track.clips[0].keys[1], ky = op().y + op().h - 8 - (op().h - 16) * 0.8;
+    pointer(tl, 'pointerdown', tv.xOf(30), ky); pointer(tl, 'pointerup', tv.xOf(30), ky); await frames(1);
+    expect('a tall row shows its curve, and its keys sit on it (clicking one there selects it)', ed.sel.key?.clip.keys[ed.sel.key.index] === k);
+    expect('the row heights are remembered', !!JSON.parse(win.localStorage.getItem('maphappy-editor-row-heights'))[`audio:${atrack.id}`]);
+    tl.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, clientX: tl.getBoundingClientRect().left + 400, clientY: tl.getBoundingClientRect().top + ar().y + ar().h - 1 })); await frames(1);
+    expect('double-clicking a row\'s edge puts it back to its standard height', ar().h === h0);
+    const b = tv.bars(), H = tl.clientHeight, W = tl.clientWidth;
+    expect('with more rows than fit, there is a scroll bar on the right', b.v.on);
+    pointer(tl, 'pointerdown', W - 6, b.v.y + 5); pointer(tl, 'pointermove', W - 6, H - 10); pointer(tl, 'pointerup', W - 6, H - 10); await frames(1);
+    expect('dragging it to the bottom shows the last rows', near(tv.vy, tv.maxVy(), 1) && tv.vy > 0);
+    pointer(tl, 'pointerdown', W - 6, 30); pointer(tl, 'pointerup', W - 6, 30); await frames(1);
+    expect('clicking near its top goes back to the top', tv.vy === 0);
+    const hb = tv.bars().h;
+    pointer(tl, 'pointerdown', hb.x + 5, H - 6); pointer(tl, 'pointermove', W - 20, H - 6); pointer(tl, 'pointerup', W - 20, H - 6); await frames(1);
+    expect('dragging the bottom scroll bar to the end shows the end of the show', tv.tOf(W - 12) >= 60 && tv.scroll > 0);
+    pointer(tl, 'pointerdown', 200, H - 6); pointer(tl, 'pointerup', 200, H - 6); await frames(1);
+    expect('...and clicking at its start goes back to the beginning', tv.scroll === 0);
+    tl.dispatchEvent(new win.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: tl.getBoundingClientRect().left + 50, clientY: tl.getBoundingClientRect().top + 100, deltaY: 120 })); await frames(1);
+    expect('scrolling over the track names scrolls down', tv.vy > 0);
+    tv.heights.clear(); tv.saveHeights(); tv.vy = 0; }
+
+  // ---- several surfaces into a folder at once
+  { ed.newShow(); for (const sh of ['circle', 'triangle', 'quad']) ops.addSurface(ed.show, sh, 1);
+    const f = ops.addFolder(ed.show, 'F'); ed.commit(); click(doc.querySelector('.tabs button[data-tab="surfaces"]')); await frames(2);
+    const ids = ed.show.surfaces.map(s => s.id), rowOf = id => doc.querySelector(`#panel [data-surface="${id}"]`);
+    rowOf(ids[0]).dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    rowOf(ids[2]).dispatchEvent(new win.MouseEvent('click', { bubbles: true, shiftKey: true })); await frames(1);
+    expect('Shift-click selects everything between', ed.multi.size === 3 && ed.selected().id === ids[2] && doc.querySelectorAll('#panel .item.multi').length === 2);
+    rowOf(ids[1]).dispatchEvent(new win.MouseEvent('click', { bubbles: true, ctrlKey: true })); await frames(1);
+    expect('Ctrl-click takes one out again', ed.multi.size === 2 && !ed.multi.has(ids[1]));
+    { const dt = new win.DataTransfer(), dst = doc.querySelector(`#panel [data-folder="${f}"]`);
+      rowOf(ids[0]).dispatchEvent(new win.DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+      dst.dispatchEvent(new win.DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      dst.dispatchEvent(new win.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })); await frames(2); }
+    const s = id => ed.show.surfaces.find(x => x.id === id);
+    expect('dragging one of them onto a folder puts them all in it', s(ids[0]).folder === f && s(ids[2]).folder === f && s(ids[1]).folder === 0);
+    rowOf(ids[1]).dispatchEvent(new win.MouseEvent('click', { bubbles: true })); await frames(1);
+    expect('a plain click selects just that one again', ed.multi.size === 1 && ed.selected().id === ids[1] && !doc.querySelector('#panel .item.multi'));
+    rowOf(ids[0]).dispatchEvent(new win.MouseEvent('click', { bubbles: true, ctrlKey: true })); await frames(1);
+    press('Delete', 'Delete'); await frames(1);
+    expect('Delete with several selected deletes them all', ed.show.surfaces.length === 2 && !ed.show.surfaces.some(x => x.id === ids[0] || x.id === ids[1]));
     ed.newShow(); ops.addSurface(ed.show, 'circle', 1); ops.addMarker(ed.show, 1); ed.storePreset(0); ed.commit(); await frames(2); }
 
   // ---- 3D object and lighting
@@ -244,7 +353,7 @@ try {
   expect('the show is saved in the desktop format (surfaces, keyframes, presets, markers)', json.format === 'maphappy' && json.surfaces.length === 3 && json.presets.length === 1 && json.timeline.markers.length === 1);
   await sleep(2200);
   expect('...and autosaved in the browser', win.localStorage.getItem('maphappy-editor-show') === ed.snapshot);
-  expect('no errors were shown', !doc.getElementById('status').dataset.error);
+  expect('no errors were shown', !doc.documentElement.dataset.error);
 } catch (e) { expect(`crashed: ${e.stack || e}`, false); }
 
 lines.push(failed ? `SOME CHECKS FAILED (${passed} passed, ${failed} failed)` : `ALL CHECKS PASSED (${passed} passed, 0 failed)`);
