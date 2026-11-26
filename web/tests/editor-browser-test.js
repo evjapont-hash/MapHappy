@@ -1,6 +1,7 @@
 // Drives the web editor like a person would and checks the result.
 import { squareToQuad, mapPoint } from '../js/math.js';
 import * as ops from '../js/editor-ops.js';
+import { evaluateTrack } from '../js/timeline.js';
 const lines = [];
 let passed = 0, failed = 0;
 const expect = (what, ok) => { lines.push(`${ok ? 'PASS' : 'FAIL'}  ${what}`); ok ? passed++ : failed++; document.getElementById('out').textContent = lines.join('\n') + '\n...'; };
@@ -239,6 +240,59 @@ try {
     ops.addSurface(ed.show, 'line', 1); const ln = ed.show.surfaces[0]; ed.select(ln.id); const cp = ed.duplicate(ln);
     expect('a duplicated line is moved aside too', near(cp.lineA.x, ln.lineA.x + 0.03, 1e-6));
     }
+
+  // ---- clips and keyframes on the timeline: select several, copy, paste, move, clips
+  { ed.newShow(); const s1 = ed.selected();
+    ops.setKey(ed.show, s1.id, 'opacity', 1, 0.2); ops.setKey(ed.show, s1.id, 'opacity', 2, 0.8); ops.setKey(ed.show, s1.id, 'posX', 1, 0.1); ed.commit(); await frames(2);
+    const tl = doc.getElementById('timeline'), tv = ed.timelineView; tv.scroll = 0; tv.pps = 60; tv.vy = 0; tv.heights.clear(); await frames(1);
+    const op = ed.show.timeline.tracks.find(t => t.path.endsWith('/opacity')), px = ed.show.timeline.tracks.find(t => t.path.endsWith('/posX'));
+    const rowOf = t => tv.rows().find(r => r.track === t), at = (t, i) => { const r = rowOf(t), k = ops.keysOf(t)[i]; return { x: tv.xOf(k.time), y: tv.keyY(r, k) }; };
+    const tap = (pt, extra = {}) => { pointer(tl, 'pointerdown', pt.x, pt.y, extra); pointer(tl, 'pointerup', pt.x, pt.y, extra); };
+    tap(at(op, 0)); tap(at(op, 1), { shiftKey: true }); await frames(1);
+    expect('Shift-click selects a second keyframe', ed.selectedKeys().length === 2);
+    tap(at(op, 0), { ctrlKey: true }); await frames(1);
+    expect('Ctrl-click takes one out again', ed.selectedKeys().length === 1 && ed.selectedKeys()[0].key === ops.keysOf(op)[1].key);
+    tap(at(op, 0), { ctrlKey: true }); await frames(1);
+    press('c', 'KeyC', { ctrlKey: true }); ed.seek(4); await frames(1); press('v', 'KeyV', { ctrlKey: true }); await frames(2);
+    expect('Ctrl+C, Ctrl+V pastes the keyframes at the playhead, keeping their spacing and values', ops.keysOf(op).length === 4 && near(evaluateTrack(op, 4), 0.2, 1e-6) && near(evaluateTrack(op, 5), 0.8, 1e-6));
+    expect('...and the pasted ones are selected, and no surface was pasted', ed.selectedKeys().length === 2 && ed.selectedKeys().every(x => x.clip.start + x.key.t >= 4 - 1e-6) && ed.show.surfaces.length === 1);
+    { const a = at(op, 2); await drag(tl, a, { x: a.x + tv.pps, y: a.y }); }
+    expect('dragging one of several selected keyframes moves them all', near(ops.keysOf(op)[2].time, 5, 0.05) && near(ops.keysOf(op)[3].time, 6, 0.05));
+    tap(at(px, 0)); press('c', 'KeyC', { ctrlKey: true });
+    pointer(tl, 'pointerdown', tv.xOf(8), rowOf(op).y + rowOf(op).h / 2); pointer(tl, 'pointerup', tv.xOf(8), rowOf(op).y + rowOf(op).h / 2);       // click the opacity row
+    ed.seek(8); press('v', 'KeyV', { ctrlKey: true }); await frames(1);
+    expect('keyframes from one track paste onto the row clicked last', near(evaluateTrack(op, 8), 0.1, 1e-6));
+    ed.selectKey(null); await frames(1);
+    { const r = rowOf(op), y0 = r.y + r.h / 2 + 4, y1 = r.y + r.h - 6; await drag(tl, { x: tv.xOf(0.5), y: y0 }, { x: tv.xOf(2.5), y: y1 }); }
+    expect('a plain drag over the lane only moves the playhead', !ed.selectedKeys().length);
+    { const r = rowOf(op); pointer(tl, 'pointerdown', tv.xOf(0.5), r.y + 4, { shiftKey: true }); pointer(tl, 'pointermove', tv.xOf(2.5), r.y + r.h - 3, { shiftKey: true }); pointer(tl, 'pointerup', tv.xOf(2.5), r.y + r.h - 3, { shiftKey: true }); await frames(1); }
+    expect('Shift-dragging a box selects the keyframes inside it', ed.selectedKeys().length === 2 && ed.selectedKeys().every(x => x.track === op && x.clip.start + x.key.t <= 2.01));
+    press('Delete', 'Delete'); await frames(1);
+    expect('Delete deletes all the selected keyframes', ops.keysOf(op).length === 3 && ed.show.surfaces.length === 1);
+
+    // clips
+    const ctx = (pt) => tl.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: tl.getBoundingClientRect().left + pt.x, clientY: tl.getBoundingClientRect().top + pt.y }));
+    const menuItem = text => [...doc.querySelectorAll('.menu button')].find(b => b.textContent.startsWith(text));
+    tv.pps = 20; await frames(1);                                                 // (so the clips made below fit in view)
+    const c0 = op.clips[0];
+    ctx({ x: tv.xOf(c0.start + 0.2), y: rowOf(op).y + 6 }); await frames(1);
+    click(menuItem('Ghost copy')); await frames(1);
+    const g = op.clips.find(c => c.ghost);
+    expect('right-click a clip > Ghost copy makes a copy that shares its keyframes', !!g && g.keys === c0.keys);
+    const before = op.clips.length;
+    ctx({ x: tv.xOf(c0.start + 0.2), y: rowOf(op).y + 6 }); await frames(1); click(menuItem('Duplicate')); await frames(1);
+    const dup = ed.sel.clip?.clip;
+    expect('...Duplicate makes an independent copy, selected', op.clips.length === before + 1 && dup && dup.keys !== c0.keys && !dup.ghost);
+    { const x0 = tv.xOf(dup.start + dup.duration / 2), y = rowOf(op).y + 6, start = dup.start; await drag(tl, { x: x0, y }, { x: x0 + 2 * tv.pps, y }); ed.snap = true;
+      expect('dragging a clip\'s header moves it', dup.start > start + 1); }
+    { const x1 = tv.xOf(dup.start + dup.duration) - 1, y = rowOf(op).y + rowOf(op).h / 2, d0 = dup.duration; ed.snap = false;
+      await drag(tl, { x: x1, y }, { x: x1 + d0 * tv.pps, y }); ed.snap = true;
+      expect('dragging its right edge stretches it, and its keyframes loop', near(dup.duration, 2 * d0, 0.05) && near(evaluateTrack(op, dup.start + d0 * 0.5), evaluateTrack(op, dup.start + d0 * 1.5), 0.02)); }
+    tap({ x: tv.xOf(dup.start + 0.1), y: rowOf(op).y + 6 }); press('Delete', 'Delete'); await frames(1);
+    expect('Delete deletes a selected clip', !op.clips.includes(dup));
+    ctx({ x: tv.xOf(30), y: rowOf(px).y + rowOf(px).h / 2 }); await frames(1); click(menuItem('Create clip here')); await frames(1);
+    expect('right-click an empty spot > Create clip here', px.clips.some(c => near(c.start, 30, 0.05)));
+    tv.heights.clear(); }
 
   // ---- typing a value, then clicking elsewhere (this used to throw "The node to be removed is no longer a child")
   { ed.newShow(); ops.addSurface(ed.show, 'circle', 1); ed.commit(); await frames(2);

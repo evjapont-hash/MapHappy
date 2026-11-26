@@ -172,6 +172,7 @@
   .tlbar { display: flex; align-items: center; gap: 6px; height: 42px; padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--border); flex: none; }
   .tlbar .hint { margin: 0 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .tlbar .sep { height: 20px; margin: 0 6px; }
+  .tlbar label, .tlbar button { white-space: nowrap; flex: none; }
   #play { min-width: 86px; }
   #timeline { flex: 1; width: 100%; min-height: 0; display: block; touch-action: none; }
 
@@ -185,6 +186,7 @@
   .menu { position: fixed; z-index: 20; background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 4px; display: flex; flex-direction: column; min-width: 160px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
   .menu button { justify-content: flex-start; border: 0; background: none; height: 30px; }
   .menu button:hover:not(:disabled) { background: var(--accent-soft); }
+  .menu-sep { height: 1px; background: var(--border-strong); margin: 4px 2px; }
   #helpbox { position: fixed; right: 16px; top: 56px; width: min(480px, 92vw); max-height: 80vh; overflow-y: auto; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 16px 20px; z-index: 15; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); line-height: 1.55; }
   #helpbox .icon { display: inline-block; vertical-align: -2px; color: var(--key); }
   #helpbox h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
@@ -271,6 +273,8 @@
     <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>B</kbd> blackout</li>
     <li><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> copy / paste the selected surface · <kbd>Delete</kbd> or <kbd>Backspace</kbd> deletes what is selected (surface, mask, keyframe or song clip)</li>
     <li>Stage: scroll to zoom in, drag an empty part (or with the middle mouse button) to move around, <kbd>+</kbd> / <kbd>-</kbd> zoom, click the % to fit it again.</li>
+    <li>Keyframes: <kbd>Shift</kbd>- or <kbd>Ctrl</kbd>-click to select several, or <kbd>Shift</kbd>-drag a box round them; <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> copy them and paste them at the playhead (onto the track you clicked last, if they came from one track); <kbd>Delete</kbd> deletes them.</li>
+    <li>Clips: drag a clip's header to move it and its right edge to stretch it (its keyframes then loop). Right-click a clip to duplicate it, make a ghost copy (it shares the keyframes: change one, both change) or delete it; right-click an empty spot to make a new clip.</li>
     <li>Timeline: drag a keyframe sideways to change its time and up or down to change its value (<kbd>Shift</kbd>: only the value). Drag a row's bottom edge to make it taller or shorter; drag the scroll bars, or scroll over the track names to scroll up and down.</li>
     <li>Drag the borders between the panels to resize them; double-click a border to reset it.</li>
     <li>Surfaces list: <kbd>Ctrl</kbd>-click or <kbd>Shift</kbd>-click to select several, then drag them onto a folder together.</li>

@@ -152,6 +152,99 @@ export function keysOf(track) {
 // Whether a clip ends at its last key (rather than being stretched to loop its keys).
 const endsAtLastKey = clip => !clip.keys.length || Math.abs(clip.duration - Math.max(1 / 60, clip.keys[clip.keys.length - 1].t)) < 1e-6;
 
+// ---------------------------------------------------------------- clips (as in the desktop app's Timeline.h)
+// A clip holds keyframes; clips on a track never overlap. A clip longer than its keyframes loops them. A ghost copy
+// shares its keyframes with the original (editing one edits both); a duplicate gets its own.
+function clipNeighbours(track, clip) {
+  const list = [...track.clips].sort((a, b) => a.start - b.start), i = list.indexOf(clip);
+  return { prevEnd: i > 0 ? list[i - 1].start + list[i - 1].duration : 0, nextStart: i + 1 < list.length ? list[i + 1].start : Infinity };
+}
+// The first start at or after `t` where a clip of `duration` fits.
+function freeStart(track, t, duration, except = null) {
+  let s = Math.max(0, t), moved = true;
+  while (moved) {
+    moved = false;
+    for (const c of track.clips) if (c !== except && s < c.start + c.duration - 1e-9 && s + duration > c.start + 1e-9) { s = c.start + c.duration; moved = true; }
+  }
+  return s;
+}
+const sortClips = track => track.clips.sort((a, b) => a.start - b.start);
+const grow = (show, end) => { show.timeline.length = Math.max(show.timeline.length, end); };
+
+// A new clip at `start` (up to 2 s long, less if the next clip is closer), holding `value`. Null if there is no room.
+export function addClip(show, track, start, value) {
+  start = Math.max(0, start);
+  if (track.clips.some(c => start >= c.start - 1e-9 && start < c.start + c.duration - 1e-9)) return null;
+  const next = track.clips.filter(c => c.start > start).reduce((m, c) => Math.min(m, c.start), Infinity), duration = Math.min(2, next - start);
+  if (duration < 1 / 60) return null;
+  const tl = show.timeline, clip = { id: nextId(tl, 'clip'), name: `Clip-${tl.counters.clip}`, start, duration, ghost: false,
+    keys: [{ t: 0, v: value, interp: 'smooth' }, { t: duration, v: value, interp: 'smooth' }] };
+  track.clips.push(clip); sortClips(track); grow(show, start + duration);
+  return clip;
+}
+// A copy in the next free spot after the clip (or at `at`). ghost = it shares the keyframes.
+export function duplicateClip(show, track, clip, ghost, at = clip.start + clip.duration) {
+  const tl = show.timeline, copy = { id: nextId(tl, 'clip'), name: `Clip-${tl.counters.clip}`, start: freeStart(track, at, clip.duration), duration: clip.duration,
+    ghost, keys: ghost ? clip.keys : clip.keys.map(k => ({ ...k })) };
+  track.clips.push(copy); sortClips(track); grow(show, copy.start + copy.duration);
+  return copy;
+}
+export function removeClip(show, track, clip) {
+  track.clips = track.clips.filter(c => c !== clip);
+  if (!track.clips.length) show.timeline.tracks = show.timeline.tracks.filter(t => t !== track);
+}
+// Slides a clip (it stops at its neighbours).
+export function moveClip(show, track, clip, start) {
+  const { prevEnd, nextStart } = clipNeighbours(track, clip);
+  clip.start = Math.max(prevEnd, Math.min(nextStart - clip.duration, start));
+  grow(show, clip.start + clip.duration);
+}
+// Stretches a clip from its right edge: longer than its keyframes, they loop.
+export function resizeClip(show, track, clip, duration) {
+  const { nextStart } = clipNeighbours(track, clip);
+  clip.duration = Math.max(1 / 60, Math.min(nextStart - clip.start, duration));
+  grow(show, clip.start + clip.duration);
+}
+
+// ---------------------------------------------------------------- copying and pasting keyframes
+// items: [{ track, clip, key }] -> what is kept on the clipboard (times relative to the earliest key).
+export function copyKeys(items) {
+  if (!items.length) return null;
+  const abs = items.map(i => ({ path: i.track.path, t: i.clip.start + i.key.t, v: i.key.v, interp: i.key.interp }));
+  const t0 = Math.min(...abs.map(a => a.t));
+  return { kind: 'keys', items: abs.map(a => ({ ...a, t: a.t - t0 })) };
+}
+// Pastes them with the earliest at `at`. Keys copied from ONE track can go onto another (`target`, a track path).
+// Returns the new keys as [{ track, clip, key }].
+export function pasteKeys(show, copied, at, target = null) {
+  const oneTrack = new Set(copied.items.map(i => i.path)).size === 1, out = [];
+  for (const i of copied.items) {
+    const path = parsePath(oneTrack && target ? target : i.path);
+    if (!path || !show.surfaces.some(s => s.id === path.id)) continue;           // its surface was deleted
+    const time = at + i.t, track = setKey(show, path.id, path.key, time, i.v, i.interp);
+    if (!track) continue;
+    const k = keysOf(track).find(x => Math.abs(x.time - time) < 0.5 / 60);
+    if (k) out.push({ track, clip: k.clip, key: k.key });
+  }
+  return out;
+}
+// Deletes several keyframes (found by object, since indices shift as they go).
+export function deleteKeys(show, items) {
+  for (const i of items) { const idx = i.clip.keys.indexOf(i.key); if (idx >= 0) deleteKey(show, i.track, i.clip, idx); }
+}
+// Moves keyframes by `dt` seconds (each stays inside its clip, at or after the clip's start). `from` = their times
+// before the move, as returned by keyTimes(); calling it again with another dt starts from those times again.
+export const keyTimes = items => items.map(i => ({ ...i, t0: i.key.t, exact: endsAtLastKey(i.clip) }));
+export function shiftKeys(show, moving, dt) {
+  for (const m of moving) m.key.t = Math.max(0, m.t0 + dt);
+  for (const clip of new Set(moving.map(m => m.clip))) {
+    clip.keys.sort((a, b) => a.t - b.t);
+    const exact = moving.find(m => m.clip === clip).exact, last = clip.keys[clip.keys.length - 1].t;
+    clip.duration = exact ? Math.max(1 / 60, last) : Math.max(clip.duration, last);
+    grow(show, clip.start + clip.duration);
+  }
+}
+
 export function deleteKey(show, track, clip, index) {
   const exact = endsAtLastKey(clip);
   clip.keys.splice(index, 1);

@@ -223,7 +223,7 @@ export class StageView {
     const h = this.hit(e);
     if (!h || h.kind === 'none') { pan(); return; }               // an empty part: drag to move around; a click deselects (see up)
     if (h.select) this.ed.select(h.select);
-    else { this.ed.sel.key = null; this.ed.sel.audio = null; }     // (Delete now means the surface)
+    else { this.ed.sel.key = null; this.ed.sel.keys = []; this.ed.sel.clip = null; this.ed.sel.audio = null; }     // (Delete now means the surface)
     this.drag = { ...h, last: this.toNorm(this.rect, e) };
     this.overlay.setPointerCapture(e.pointerId);
   }

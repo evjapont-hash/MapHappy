@@ -3,12 +3,16 @@
 // to beats and markers); double-click a row to add a keyframe; right-click one for its curve or to delete it.
 // Mouse wheel zooms, Shift + wheel scrolls; over the track names the wheel scrolls up and down. Drag a row's bottom
 // edge to make it taller or shorter. A parameter row shows its value's curve, and its keyframes sit on it: drag one
-// sideways to change its time and up or down to change its value (Shift: only the value; Ctrl: only the time). Scroll bars along the bottom and the right.
-import { keysOf, moveKey, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack, moveAudioClip, trimAudioClip } from '../editor-ops.js';
+// sideways to change its time and up or down to change its value (Shift: only the value; Ctrl: only the time).
+// Shift- or Ctrl-click keys to select several (or Shift-drag a box round them); they then move, copy and delete together.
+// Clips (as in the desktop app): drag a clip's header to move it, its right edge to stretch it (its keys loop);
+// right-click a clip to duplicate it, ghost-copy it (the copy shares its keys) or delete it, an empty spot to make one. Scroll bars along the bottom and the right.
+import { keysOf, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack, moveAudioClip, trimAudioClip, addClip, duplicateClip, removeClip, moveClip, resizeClip, keyTimes, shiftKeys } from '../editor-ops.js';
 import { evaluateTrack } from '../timeline.js';
 import { parsePath, PARAMS, cleanValue, formatValue } from '../params.js';
 import { el } from './ui.js';
 
+const HEAD = 13;                   // the clip header strip at the top of a parameter row
 const RULER = 24, AUDIO_H = 64, ROW_H = 56, LABEL_W = 190, SB = 12, EDGE = 4;
 const HEIGHTS = 'maphappy-editor-row-heights';
 const MIN_H = { audio: 32, param: 18 }, MAX_H = 480;
@@ -147,7 +151,19 @@ export class TimelineView {
         }
         continue;
       }
-      for (const clip of t.clips) { const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration); c.fillStyle = C.clip; c.fillRect(x0, r.y + 3, Math.max(2, x1 - x0), r.h - 6); }
+      for (const clip of t.clips) {
+        const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration), w = Math.max(2, x1 - x0), sel = ed.sel.clip?.clip === clip;
+        c.fillStyle = C.clip; c.fillRect(x0, r.y + 2, w, r.h - 4);
+        const len = clip.keys.length ? clip.keys[clip.keys.length - 1].t : 0;            // where its keys start again (it loops)
+        if (len > 1e-3) for (let lt = clip.start + len; lt < clip.start + clip.duration - 1e-3; lt += len) { c.fillStyle = 'rgba(255,255,255,0.18)'; c.fillRect(Math.round(this.xOf(lt)), r.y + 2, 1, r.h - 4); }
+        if (r.h >= 30) {                                                  // the header: drag it to move the clip
+          c.fillStyle = sel ? '#fff' : 'rgba(255,255,255,0.16)'; c.fillRect(x0, r.y + 2, w, HEAD - 2);
+          if (clip.ghost) { c.save(); c.beginPath(); c.rect(x0, r.y + 2, w, HEAD - 2); c.clip(); c.strokeStyle = sel ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.22)'; c.lineWidth = 3; for (let hx = x0 - HEAD; hx < x1; hx += 9) { c.beginPath(); c.moveTo(hx, r.y + HEAD); c.lineTo(hx + HEAD, r.y + 2); c.stroke(); } c.restore(); }
+          if (w > 40) { c.fillStyle = sel ? '#000' : C.text; c.font = '10px Inter, system-ui, sans-serif'; c.fillText(ellipsis(c, clip.ghost ? `${clip.name} (ghost)` : clip.name, w - 8), x0 + 4, r.y + 11); }
+        }
+        if (sel) { c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.strokeRect(x0 + 0.75, r.y + 2.75, w - 1.5, r.h - 5.5); }
+        c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(x1 - 2, r.y + 2, 2, r.h - 4);            // the right edge: drag to stretch
+      }
       const cv = this.curve(r), tall = !!cv, yOf = cv?.yOf;
       if (tall) {                                                 // a tall row shows the value's curve, with the keys on it
         c.beginPath();
@@ -202,6 +218,10 @@ export class TimelineView {
     if (!rows.some(r => r.track.kind === 'param'))
       { c.fillStyle = C.dim; c.fillText('No animation yet: press the keyframe button next to any setting to set a keyframe at the playhead.', LABEL_W + 12, (rows.length ? rows[rows.length - 1].y + rows[rows.length - 1].h : RULER) + 18); }
 
+    if (this.drag?.kind === 'box') {                                 // Shift-drag: the box being drawn round keys
+      const d = this.drag; c.strokeStyle = '#fff'; c.setLineDash([4, 3]); c.lineWidth = 1;
+      c.strokeRect(Math.min(d.x0, d.x1) + 0.5, Math.min(d.y0, d.y1) + 0.5, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); c.setLineDash([]);
+    }
     // the scroll bars
     const b = this.bars(), hot = this.drag?.kind;
     c.fillStyle = C.ruler; c.fillRect(0, bottom, W, SB); c.fillRect(W - SB, RULER, SB, bottom - RULER);
@@ -210,7 +230,23 @@ export class TimelineView {
   }
 
   surfaceOf(t) { const p = parsePath(t.path); return p ? p.id : 0; }
-  isSelected(t, k) { const s = this.ed.sel.key; return s && s.track === t && s.clip === k.clip && s.index === k.index; }
+  isSelected(t, k) {
+    const ed = this.ed, s = ed.sel.key;
+    if (ed.sel.keys?.length) return ed.sel.keys.some(x => x.key === k.key && x.clip === k.clip);
+    return !!s && s.track === t && s.clip === k.clip && (s.key ? s.key === k.key : s.index === k.index);
+  }
+  // A parameter clip under the point, and which part: its 'header' (move), right 'edge' (stretch) or 'body'.
+  clipAt(pt) {
+    if (pt.y < RULER || pt.y > this.view().H - SB || pt.x < LABEL_W) return null;
+    const r = this.rows().find(r => r.track.kind === 'param' && pt.y >= r.y && pt.y < r.y + r.h);
+    if (!r) return null;
+    for (const clip of r.track.clips) {
+      const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration);
+      if (pt.x < x0 || pt.x > x1 + 5) continue;
+      return { row: r, track: r.track, clip, part: Math.abs(pt.x - x1) <= 5 ? 'edge' : (r.h >= 30 && pt.y < r.y + HEAD) ? 'header' : 'body' };
+    }
+    return { row: r, track: r.track, clip: null, part: 'lane' };
+  }
 
   // A song clip under the point, and which part: 'start' / 'end' edge (trim) or 'body' (move).
   audioAt(pt) {
@@ -273,18 +309,64 @@ export class TimelineView {
       this.drag = { kind: a.part === 'body' ? 'audioMove' : `trim-${a.part}`, grab: this.tOf(p.x) - a.clip.start };
       return;
     }
-    const { key } = this.keyAt(p);
+    const { key, row } = this.keyAt(p);
+    if (row) ed.sel.track = row.track;                               // (keyframes pasted from one track go onto this one)
     if (key && e.button === 0) {
-      const row = this.keyAt(p).row;
-      ed.selectKey({ track: row.track, clip: key.clip, index: key.index });
-      this.drag = { kind: 'key', grab: this.tOf(p.x) - key.time, time: key.time, y: p.y, v: key.key.v, curve: this.curve(row), path: parsePath(row.track.path) };
+      const item = { track: row.track, clip: key.clip, key: key.key }, cur = ed.selectedKeys(), inSel = cur.some(x => x.key === key.key);
+      let sel = cur;
+      if (e.shiftKey || e.ctrlKey || e.metaKey) {                    // add it to the selection, or take it out
+        sel = inSel ? cur.filter(x => x.key !== key.key) : [...cur, item];
+        ed.setKeySelection(sel, inSel ? sel[sel.length - 1] : item);
+        if (inSel) return;
+      } else if (inSel && cur.length > 1) ed.setKeySelection(cur, item);    // several selected: drag them all
+      else { sel = [item]; ed.setKeySelection(sel); }
+      const rowOf = t => this.rows().find(r => r.track === t);
+      this.drag = { kind: 'key', grab: this.tOf(p.x) - key.time, time: key.time, y: p.y, single: !(e.shiftKey || e.ctrlKey || e.metaKey) && inSel && cur.length > 1 ? item : null,
+                    moving: keyTimes(ed.selectedKeys()).map(m => ({ ...m, v0: m.key.v, curve: this.curve(rowOf(m.track) || { track: m.track, h: 0 }), param: parsePath(m.track.path)?.key })) };
+      return;
+    }
+    if (e.button === 0 && e.shiftKey && p.y > RULER) { this.drag = { kind: 'box', x0: p.x, y0: p.y, x1: p.x, y1: p.y, before: ed.selectedKeys() }; return; }   // Shift-drag: select keys in a box
+    const hit = this.clipAt(p);
+    if (hit?.clip && hit.part !== 'body' && e.button === 0) {       // a clip: its header moves it, its right edge stretches it
+      ed.selectKey(null); ed.sel.clip = { track: hit.track, clip: hit.clip }; ed.sel.audio = null;
+      this.drag = hit.part === 'edge' ? { kind: 'clipResize' } : { kind: 'clipMove', grab: this.tOf(p.x) - hit.clip.start };
       return;
     }
     if (e.button === 0) { ed.selectKey(null); ed.sel.audio = null; this.drag = { kind: 'scrub' }; ed.seek(this.tOf(p.x)); }
   }
   move(e) {
     const p = this.local(e), ed = this.ed;
-    if (!this.drag) { const a = this.audioAt(p); this.canvas.style.cursor = this.edgeAt(p) ? 'row-resize' : a ? (a.part === 'body' ? 'grab' : 'ew-resize') : 'default'; return; }
+    if (!this.drag) {
+      const a = this.audioAt(p), cl = !a && this.clipAt(p);
+      this.canvas.style.cursor = this.edgeAt(p) ? 'row-resize' : a ? (a.part === 'body' ? 'grab' : 'ew-resize') : cl?.clip && cl.part === 'edge' ? 'ew-resize' : cl?.clip && cl.part === 'header' ? 'grab' : 'default';
+      return;
+    }
+    if (this.drag.kind === 'box') {
+      const d = this.drag; d.x1 = p.x; d.y1 = p.y;
+      const [xa, xb, ya, yb] = [Math.min(d.x0, d.x1), Math.max(d.x0, d.x1), Math.min(d.y0, d.y1), Math.max(d.y0, d.y1)], inBox = [];
+      for (const r of this.rows()) if (r.track.kind === 'param') for (const k of keysOf(r.track)) {
+        const x = this.xOf(k.time), y = this.keyY(r, k);
+        if (x >= xa && x <= xb && y >= ya - 6 && y <= yb + 6) inBox.push({ track: r.track, clip: k.clip, key: k.key });
+      }
+      const all = [...d.before.filter(x => !inBox.some(y => y.key === x.key)), ...inBox];
+      ed.setKeySelection(all);
+      return;
+    }
+    if (this.drag.kind === 'clipMove' || this.drag.kind === 'clipResize') {
+      const sc = ed.sel.clip;
+      if (!sc) return;
+      if (this.drag.kind === 'clipMove') {
+        let t = this.tOf(p.x) - this.drag.grab;
+        if (ed.snap && !e.altKey) { const a = snapTime(ed.show, t, 8 / this.pps), b = snapTime(ed.show, t + sc.clip.duration, 8 / this.pps) - sc.clip.duration; t = Math.abs(b - t) < Math.abs(a - t) ? b : a; }   // its start or its end snaps
+        moveClip(ed.show, sc.track, sc.clip, t);
+      } else {
+        let t = this.tOf(p.x);
+        if (ed.snap && !e.altKey) t = snapTime(ed.show, t, 8 / this.pps);
+        resizeClip(ed.show, sc.track, sc.clip, t - sc.clip.start);
+      }
+      this.drag.moved = true; ed.touched();
+      return;
+    }
     const v = this.view();
     if (this.drag.kind === 'hbar') { const w = this.bars().h.w; this.scroll = (p.x - this.drag.grab - LABEL_W) / Math.max(1, v.timeW - w) * this.bars().h.range; this.clampScroll(); return; }
     if (this.drag.kind === 'vbar') { const h = this.bars().v.h; this.vy = (p.y - this.drag.grab - RULER) / Math.max(1, v.rowsH - h) * this.maxVy(); this.clampScroll(); return; }
@@ -302,22 +384,25 @@ export class TimelineView {
     const s = ed.sel.key;
     if (this.drag.kind === 'key' && s) {
       const d = this.drag;
-      let t = e.shiftKey ? d.time : this.tOf(p.x) - d.grab;         // Shift: keep its time (change only the value)
+      let t = e.shiftKey ? d.time : this.tOf(p.x) - d.grab;         // Shift: keep the time (change only the value)
       if (ed.snap && !e.altKey && !e.shiftKey) t = snapTime(ed.show, t, 8 / this.pps);
-      t = Math.max(s.clip.start, t);
-      s.index = moveKey(ed.show, s.clip, s.index, t);
-      if (d.curve && !e.ctrlKey && !e.metaKey) {                    // up and down: its value (Ctrl: keep the value)
-        let v = d.v + (d.y - p.y) * d.curve.perPx;
-        if (d.curve.d.format === 'choice') v = Math.round(v);
-        const c = cleanValue(d.path.key, v);
-        if (c !== null) s.clip.keys[s.index].v = c;
+      const earliest = Math.min(...d.moving.map(m => m.t0));       // (none of them goes before its clip's start)
+      shiftKeys(ed.show, d.moving, Math.max(t - d.time, -earliest));
+      if (!e.ctrlKey && !e.metaKey) for (const m of d.moving) {     // up and down: the values (Ctrl: keep them)
+        if (!m.curve) continue;
+        let v = m.v0 + (d.y - p.y) * m.curve.perPx;
+        if (m.curve.d.format === 'choice') v = Math.round(v);
+        const c = cleanValue(m.param, v);
+        if (c !== null) m.key.v = c;
       }
+      if (s.key) s.index = s.clip.keys.indexOf(s.key);
       this.drag.moved = true;
       ed.touched();
     }
   }
   up() {
     if (this.drag?.kind === 'height') this.saveHeights();
+    if (this.drag?.kind === 'key' && !this.drag.moved && this.drag.single) this.ed.setKeySelection([this.drag.single]);   // a click (no drag) on one of several: just that one
     if (this.drag?.moved) {
       this.ed.commit();
       if ((this.drag.kind === 'audioMove' || this.drag.kind.startsWith('trim-')) && this.ed.clock.playing) { this.ed.clock.pause(); this.ed.clock.play(); }   // the sound follows the edit
@@ -340,21 +425,45 @@ export class TimelineView {
     this.ed.commit();
   }
 
-  // Right-click a keyframe: its curve, or delete it.
+  // Right-click: a keyframe (its curve, copy, delete), a clip (duplicate, ghost copy, copy, delete) or an empty spot (a new clip, paste).
   context(e) {
     e.preventDefault();
-    const p = this.local(e), { row, key } = this.keyAt(p);
-    if (!key) return;
-    const ed = this.ed;
-    ed.selectKey({ track: row.track, clip: key.clip, index: key.index });
-    const k = key.key;
+    const p = this.local(e), ed = this.ed, { row, key } = this.keyAt(p), hit = key ? null : this.clipAt(p), time = this.tOf(p.x);
+    const items = [], done = () => { ed.commit(); ed.refreshPanels(); };
+    const canPaste = ed.clipboard?.kind === 'keys' || ed.clipboard?.kind === 'clip';
+    const paste = tr => ['Paste here', () => { ed.pasteTimeline(ed.snap ? snapTime(ed.show, time, 8 / this.pps) : time, tr); }];
+    if (key) {
+      const item = { track: row.track, clip: key.clip, key: key.key };
+      if (!ed.selectedKeys().some(x => x.key === key.key)) ed.setKeySelection([item]);
+      const sel = ed.selectedKeys(), many = sel.length > 1;
+      for (const [v, l] of [['smooth', 'Smooth'], ['linear', 'Linear'], ['hold', 'Hold (jump)']])
+        items.push([(sel.every(x => x.key.interp === v) ? '● ' : '○ ') + l, () => { for (const x of sel) x.key.interp = v; done(); }]);
+      items.push(null, [many ? `Copy ${sel.length} keyframes` : 'Copy', () => ed.copyTimeline()]);
+      if (canPaste) items.push(paste(row.track));
+      items.push([many ? `Delete ${sel.length} keyframes` : 'Delete keyframe', () => { ed.deleteSelected(); ed.refreshPanels(); }]);
+    } else if (hit?.clip) {
+      ed.selectKey(null); ed.sel.clip = { track: hit.track, clip: hit.clip }; ed.sel.track = hit.track;
+      items.push(['Duplicate', () => { ed.sel.clip = { track: hit.track, clip: duplicateClip(ed.show, hit.track, hit.clip, false) }; done(); }],
+                 ['Ghost copy (shares its keyframes)', () => { ed.sel.clip = { track: hit.track, clip: duplicateClip(ed.show, hit.track, hit.clip, true) }; done(); }],
+                 ['Copy', () => ed.copyTimeline()]);
+      if (canPaste) items.push(paste(hit.track));
+      items.push(null, ['Delete clip', () => { removeClip(ed.show, hit.track, hit.clip); ed.sel.clip = null; done(); }]);
+    } else if (hit) {
+      ed.sel.track = hit.track;
+      items.push(['Create clip here', () => {
+        const t = ed.snap ? snapTime(ed.show, time, 8 / this.pps) : time, v = evaluateTrack(hit.track, t) ?? 0, c = addClip(ed.show, hit.track, t, v);
+        if (c) { ed.selectKey(null); ed.sel.clip = { track: hit.track, clip: c }; done(); } else ed.status('There is no room for a clip there.');
+      }]);
+      if (canPaste) items.push(paste(hit.track));
+    } else return;
     const menu = el('div', { class: 'menu', style: { left: `${e.clientX}px`, top: `${e.clientY}px` } },
-      ...[['smooth', 'Smooth'], ['linear', 'Linear'], ['hold', 'Hold (jump)']].map(([v, l]) =>
-        el('button', { text: (k.interp === v ? '● ' : '○ ') + l, on: { click: () => { k.interp = v; ed.commit(); close(); } } })),
-      el('button', { text: 'Delete keyframe', on: { click: () => { deleteKey(ed.show, row.track, key.clip, key.index); ed.selectKey(null); ed.commit(); ed.refreshPanels(); close(); } } }));
+      ...items.map(it => it ? el('button', { text: it[0], on: { click: () => { close(); it[1](); } } }) : el('div', { class: 'menu-sep' })));
     const close = () => { menu.remove(); removeEventListener('pointerdown', outside, true); };
     const outside = ev => { if (!menu.contains(ev.target)) close(); };
     document.body.append(menu);
+    const b = menu.getBoundingClientRect();                         // keep it on the screen
+    if (b.bottom > innerHeight) menu.style.top = `${Math.max(4, innerHeight - b.height - 4)}px`;
+    if (b.right > innerWidth) menu.style.left = `${Math.max(4, innerWidth - b.width - 4)}px`;
     setTimeout(() => addEventListener('pointerdown', outside, true));
   }
 

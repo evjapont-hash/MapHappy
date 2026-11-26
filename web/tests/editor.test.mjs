@@ -162,3 +162,57 @@ test('song clips: move, trim, split and delete, never overlapping', () => {
   ops.deleteAudioClip(show, track, second); ops.deleteAudioClip(show, track, b); ops.deleteAudioClip(show, track, a);
   assert.equal(show.timeline.tracks.length, 0);
 });
+
+test('clips: make, move, stretch (loops), duplicate, ghost copy, delete', () => {
+  const show = emptyShow(), s = ops.addSurface(show, 'quad');
+  ops.setKey(show, s.id, 'opacity', 0, 0); ops.setKey(show, s.id, 'opacity', 1, 1);
+  const track = show.timeline.tracks[0], a = track.clips[0];
+  assert.equal(ops.addClip(show, track, 0.5, 0.3), null);                   // no room inside another clip
+  const b = ops.addClip(show, track, 3, 0.3);
+  assert.ok(b && b.start === 3 && b.duration === 2 && b.keys.length === 2 && b.keys[0].v === 0.3);
+  ops.moveClip(show, track, b, 0.2); near(b.start, 1);                       // it stops at the clip before it
+  ops.resizeClip(show, track, a, 0.5); near(a.duration, 0.5);
+  ops.resizeClip(show, track, a, 2); near(a.duration, 1);                    // ...and the clip after it
+  ops.moveClip(show, track, b, 5);
+  ops.resizeClip(show, track, a, 3); near(a.duration, 3);
+  near(evaluateTrack(track, 1.5), evaluateTrack(track, 0.5));               // longer than its keys: they loop
+  const dup = ops.duplicateClip(show, track, a, false), ghost = ops.duplicateClip(show, track, a, true);
+  near(dup.start, 7); near(ghost.start, 10);                                 // the next free spots after it (b is at 5..7, so 3..6 is taken)
+  assert.ok(dup.keys !== a.keys && ghost.keys === a.keys && ghost.ghost && !dup.ghost);
+  a.keys[1].v = 0.5;
+  assert.equal(ghost.keys[1].v, 0.5); assert.equal(dup.keys[1].v, 1);       // a ghost follows the original; a duplicate doesn't
+  const again = readShow(JSON.parse(JSON.stringify(writeShow(show))));       // ghosts survive saving
+  const t2 = again.timeline.tracks[0];
+  assert.ok(t2.clips.find(c => c.ghost).keys === t2.clips[0].keys);
+  ops.removeClip(show, track, dup);
+  assert.equal(track.clips.length, 3);
+  for (const c of [...track.clips]) ops.removeClip(show, track, c);
+  assert.equal(show.timeline.tracks.length, 0);                              // the last clip takes its track with it
+});
+
+test('keyframes: copy and paste (onto the same or another track), move several, delete several', () => {
+  const show = emptyShow(), s = ops.addSurface(show, 'quad');
+  ops.setKey(show, s.id, 'opacity', 1, 0.2); ops.setKey(show, s.id, 'opacity', 2, 0.8);
+  ops.setKey(show, s.id, 'posX', 1.5, 0.1);
+  const op = show.timeline.tracks.find(t => t.path.endsWith('/opacity')), px = show.timeline.tracks.find(t => t.path.endsWith('/posX'));
+  const pick = (t, i) => { const k = ops.keysOf(t)[i]; return { track: t, clip: k.clip, key: k.key }; };
+  const both = ops.copyKeys([pick(op, 0), pick(op, 1)]);
+  const pasted = ops.pasteKeys(show, both, 4);
+  assert.equal(pasted.length, 2);
+  near(evaluateTrack(op, 4), 0.2); near(evaluateTrack(op, 5), 0.8);          // at the playhead, the same spacing and values
+  const onX = ops.pasteKeys(show, both, 6, px.path);                         // from one track onto another
+  assert.ok(onX.every(x => x.track === px)); near(evaluateTrack(px, 7), 0.8);
+  const mixed = ops.copyKeys([pick(op, 0), pick(px, 0)]);
+  ops.pasteKeys(show, mixed, 10, op.path);                                   // from two tracks: each goes back to its own
+  near(evaluateTrack(op, 10), 0.2); near(evaluateTrack(px, 10.5), 0.1);
+  const moving = ops.keyTimes(pasted);
+  ops.shiftKeys(show, moving, 0.5);
+  near(evaluateTrack(op, 4.5), 0.2); near(evaluateTrack(op, 5.5), 0.8);
+  ops.shiftKeys(show, moving, 1);                                            // (always from where they started)
+  near(evaluateTrack(op, 6), 0.8);
+  const n = ops.keysOf(op).length;
+  ops.deleteKeys(show, pasted);
+  assert.equal(ops.keysOf(op).length, n - 2);
+  ops.removeSurface(show, s.id);
+  assert.equal(ops.pasteKeys(show, both, 0).length, 0);                      // its surface is gone: nothing to paste onto
+});
