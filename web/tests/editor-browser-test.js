@@ -290,6 +290,18 @@ try {
       expect('dragging its right edge stretches it, and its keyframes loop', near(dup.duration, 2 * d0, 0.05) && near(evaluateTrack(op, dup.start + d0 * 0.5), evaluateTrack(op, dup.start + d0 * 1.5), 0.02)); }
     tap({ x: tv.xOf(dup.start + 0.1), y: rowOf(op).y + 6 }); press('Delete', 'Delete'); await frames(1);
     expect('Delete deletes a selected clip', !op.clips.includes(dup));
+    { const c = op.clips[0], y = rowOf(op).y + rowOf(op).h / 2 + 3, kt = c.start + c.keys[0].t, x0 = tv.xOf(c.start) + 1;
+      ed.snap = false; await drag(tl, { x: x0, y }, { x: x0 + (kt - c.start) * tv.pps * 0.5, y }); ed.snap = true;
+      expect('dragging a clip\'s left edge moves its start, and its keyframes stay where they are', c.start > 0.1 && near(c.start + c.keys[0].t, kt, 1e-6)); }
+    // the same animation on another surface: copy a clip, select the other surface, paste at the same time
+    { const s2 = ops.addSurface(ed.show, 'circle', 1); ed.commit(); await frames(2);
+      const c = op.clips[0], hy = rowOf(op).y + 6;
+      tap({ x: tv.xOf(c.start + c.duration / 2), y: hy }); press('c', 'KeyC', { ctrlKey: true }); await frames(1);
+      ed.select(s2.id); await frames(1);
+      press('v', 'KeyV', { ctrlKey: true, shiftKey: true }); await frames(2);
+      const t2 = ed.show.timeline.tracks.find(t => t.path === `surface/${s2.id}/opacity`);
+      expect('a clip copied from one surface pastes onto another, at the same time (Ctrl+Shift+V)', !!t2 && near(t2.clips[0].start, c.start, 1e-6) && near(evaluateTrack(t2, c.start + 0.3), evaluateTrack(op, c.start + 0.3), 1e-6));
+      ed.select(s1.id); await frames(1); }
     ctx({ x: tv.xOf(30), y: rowOf(px).y + rowOf(px).h / 2 }); await frames(1); click(menuItem('Create clip here')); await frames(1);
     expect('right-click an empty spot > Create clip here', px.clips.some(c => near(c.start, 30, 0.05)));
     tv.heights.clear(); }

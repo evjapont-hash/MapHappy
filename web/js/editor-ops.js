@@ -206,20 +206,60 @@ export function resizeClip(show, track, clip, duration) {
   grow(show, clip.start + clip.duration);
 }
 
+// Moves a clip's left edge to `start`, keeping its keyframes where they are on the timeline (so it never cuts one off).
+// A ghost copy trimmed this way gets keyframes of its own (its copies would otherwise move too).
+export function trimClipStart(show, track, clip, start) {
+  const { prevEnd } = clipNeighbours(track, clip), end = clip.start + clip.duration, first = clip.keys.length ? clip.keys[0].t : 0;
+  const s = Math.max(prevEnd, 0, Math.min(start, clip.start + first, end - 1 / 60));
+  if (Math.abs(s - clip.start) < 1e-9) return;
+  const shared = show.timeline.tracks.some(t => (t.clips || []).some(c => c !== clip && c.keys === clip.keys));
+  if (shared) { clip.keys = clip.keys.map(k => ({ ...k })); clip.ghost = false; }
+  for (const k of clip.keys) k.t += clip.start - s;
+  clip.start = s; clip.duration = end - s;
+}
+
+// The track that animates a parameter of a surface, made if there isn't one. Null if the surface is gone.
+export function trackFor(show, surfaceId, key) {
+  if (!show.surfaces.some(s => s.id === surfaceId) || !PARAMS.has(key)) return null;
+  const tl = show.timeline, path = trackPath(surfaceId, key);
+  let t = findTrack(show, path);
+  if (!t) { t = { id: nextId(tl, 'track'), kind: 'param', name: '', path, muted: false, clips: [] }; tl.tracks.push(t); }
+  return t;
+}
+// A path moved onto another surface: "surface/3/opacity" -> "surface/7/opacity".
+const onSurface = (path, surfaceId) => { const p = parsePath(path); return p ? trackPath(surfaceId, p.key) : path; };
+
+// A clip as it is now, for the clipboard (a copy: later edits don't change it).
+export function copyClip(track, clip) {
+  return { kind: 'clip', path: track.path, start: clip.start, duration: clip.duration, keys: clip.keys.map(k => ({ ...k })) };
+}
+// Pastes a copied clip at `at` (or the next free spot after it) on its own track, on `target` (a track path), or on
+// the same parameter of `surface`. Returns { track, clip } or null.
+export function pasteClip(show, copied, at, { target = null, surface = 0 } = {}) {
+  const p = parsePath(target || (surface ? onSurface(copied.path, surface) : copied.path));
+  const track = p && trackFor(show, p.id, p.key);
+  if (!track) return null;
+  const tl = show.timeline, keys = copied.keys.map(k => ({ ...k, v: cleanValue(p.key, k.v) ?? k.v }));
+  const clip = { id: nextId(tl, 'clip'), name: `Clip-${tl.counters.clip}`, start: freeStart(track, at, copied.duration), duration: copied.duration, ghost: false, keys };
+  track.clips.push(clip); sortClips(track); grow(show, clip.start + clip.duration);
+  return { track, clip };
+}
+
 // ---------------------------------------------------------------- copying and pasting keyframes
 // items: [{ track, clip, key }] -> what is kept on the clipboard (times relative to the earliest key).
 export function copyKeys(items) {
   if (!items.length) return null;
   const abs = items.map(i => ({ path: i.track.path, t: i.clip.start + i.key.t, v: i.key.v, interp: i.key.interp }));
   const t0 = Math.min(...abs.map(a => a.t));
-  return { kind: 'keys', items: abs.map(a => ({ ...a, t: a.t - t0 })) };
+  return { kind: 'keys', start: t0, items: abs.map(a => ({ ...a, t: a.t - t0 })) };
 }
-// Pastes them with the earliest at `at`. Keys copied from ONE track can go onto another (`target`, a track path).
+// Pastes them with the earliest at `at`. Keys copied from ONE track can go onto another (`target`, a track path);
+// keys copied from one surface can go onto another `surface` (each onto the same parameter there).
 // Returns the new keys as [{ track, clip, key }].
-export function pasteKeys(show, copied, at, target = null) {
+export function pasteKeys(show, copied, at, target = null, surface = 0) {
   const oneTrack = new Set(copied.items.map(i => i.path)).size === 1, out = [];
   for (const i of copied.items) {
-    const path = parsePath(oneTrack && target ? target : i.path);
+    const path = parsePath(oneTrack && target ? target : surface ? onSurface(i.path, surface) : i.path);
     if (!path || !show.surfaces.some(s => s.id === path.id)) continue;           // its surface was deleted
     const time = at + i.t, track = setKey(show, path.id, path.key, time, i.v, i.interp);
     if (!track) continue;

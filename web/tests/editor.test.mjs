@@ -216,3 +216,33 @@ test('keyframes: copy and paste (onto the same or another track), move several, 
   ops.removeSurface(show, s.id);
   assert.equal(ops.pasteKeys(show, both, 0).length, 0);                      // its surface is gone: nothing to paste onto
 });
+
+test('clips: trimming the start keeps the keys in place; copying clips and keys onto another surface', () => {
+  const show = emptyShow(), a = ops.addSurface(show, 'quad'), b = ops.addSurface(show, 'circle');
+  ops.setKey(show, a.id, 'opacity', 1, 0.2); ops.setKey(show, a.id, 'opacity', 3, 0.8);
+  const track = show.timeline.tracks[0], clip = track.clips[0];              // starts at 0, keys at 1 and 3
+  const v2 = evaluateTrack(track, 2);
+  ops.trimClipStart(show, track, clip, 0.5);
+  near(clip.start, 0.5); near(clip.duration, 2.5); near(evaluateTrack(track, 2), v2);
+  ops.trimClipStart(show, track, clip, 2);                                    // never past its first key
+  near(clip.start, 1); near(clip.keys[0].t, 0);
+  ops.trimClipStart(show, track, clip, 0); near(clip.start, 0); near(evaluateTrack(track, 2), v2);
+  const ghost = ops.duplicateClip(show, track, clip, true); ops.moveClip(show, track, ghost, 6);
+  ops.trimClipStart(show, track, ghost, ghost.start - 0.5);
+  assert.ok(ghost.keys !== clip.keys && !ghost.ghost); near(clip.keys[0].t, 1);   // a trimmed ghost gets its own keys; the original is untouched
+
+  const copied = ops.copyClip(track, clip);
+  const r = ops.pasteClip(show, copied, copied.start, { surface: b.id });     // the same animation, at the same time, on b
+  assert.equal(r.track.path, `surface/${b.id}/opacity`);
+  for (const t of [0.5, 1, 2, 2.9]) near(evaluateTrack(r.track, t), evaluateTrack(track, t));
+  clip.keys[0].v = 0;  assert.equal(r.clip.keys[0].v, 0.2);                   // a copy, not linked
+  const onX = ops.pasteClip(show, copied, 5, { target: `surface/${b.id}/posX` });   // onto another parameter
+  assert.equal(onX.track.path, `surface/${b.id}/posX`);
+  const again = ops.pasteClip(show, copied, 0, { surface: b.id });            // already a clip there: the next free spot
+  near(again.clip.start, r.clip.start + r.clip.duration);
+
+  ops.setKey(show, a.id, 'hue', 1, 90);
+  const keys = ops.copyKeys(ops.keysOf(show.timeline.tracks.find(t => t.path.endsWith('/hue'))).map(k => ({ track: show.timeline.tracks.find(t => t.path.endsWith('/hue')), clip: k.clip, key: k.key })));
+  ops.pasteKeys(show, keys, keys.start, null, b.id);
+  near(evaluateTrack(show.timeline.tracks.find(t => t.path === `surface/${b.id}/hue`), 1), 90);
+});

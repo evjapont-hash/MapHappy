@@ -90,7 +90,7 @@ class Editor {
   }
 
   selected() { return this.show.surfaces.find(s => s.id === this.sel.surface) || null; }
-  select(id) { const many = this.multi.size > 1; this.sel.key = null; this.sel.keys = []; this.sel.clip = null; this.sel.audio = null; this.multi = new Set(id ? [id] : []); if (this.sel.surface !== id || this.selFolder || many) { this.sel.surface = id; this.selFolder = 0; this.selMask = -1; this.panels.tab = 'surfaces'; this.panels.render(); } }
+  select(id) { const many = this.multi.size > 1; this.sel.track = null; this.sel.key = null; this.sel.keys = []; this.sel.clip = null; this.sel.audio = null; this.multi = new Set(id ? [id] : []); if (this.sel.surface !== id || this.selFolder || many) { this.sel.surface = id; this.selFolder = 0; this.selMask = -1; this.panels.tab = 'surfaces'; this.panels.render(); } }
   // Several surfaces at once; `primary` is the one the inspector and the stage edit.
   selectMany(ids, primary) { this.sel.key = null; this.sel.audio = null; this.multi = new Set(ids); this.sel.surface = primary; this.selFolder = 0; this.selMask = -1; this.panels.render(); }
   deselect() { this.multi = new Set(); this.sel.key = null; this.sel.keys = []; this.sel.clip = null; this.sel.audio = null; if (this.sel.surface || this.selFolder) { this.sel.surface = 0; this.selFolder = 0; this.selMask = -1; this.panels.render(); } }
@@ -151,26 +151,32 @@ class Editor {
   }
   hasTimelineSelection() { return !!(this.sel.key || this.sel.keys?.length || this.sel.clip); }
   copyTimeline() {
-    if (this.sel.clip) { this.clipboard = { kind: 'clip', track: this.sel.clip.track, clip: this.sel.clip.clip }; this.status('Copied the clip. Ctrl+V pastes it at the playhead.'); return true; }
+    const how = 'Select another surface (or click its row) to paste there. Ctrl+V pastes at the playhead, Ctrl+Shift+V at the same time as the original.';
+    if (this.sel.clip) { this.clipboard = ops.copyClip(this.sel.clip.track, this.sel.clip.clip); this.status(`Copied the clip. ${how}`); return true; }
     const keys = this.selectedKeys();
     if (!keys.length) return false;
     this.clipboard = ops.copyKeys(keys);
-    this.status(`Copied ${keys.length} keyframe${keys.length > 1 ? 's' : ''}. Ctrl+V pastes ${keys.length > 1 ? 'them' : 'it'} at the playhead.`);
+    this.status(`Copied ${keys.length} keyframe${keys.length > 1 ? 's' : ''}. ${how}`);
     return true;
   }
-  // Pastes copied keyframes (or a clip) at the playhead, or at `at`. Keyframes from one track go onto the selected track if there is one.
-  pasteTimeline(at = this.clock.time, targetTrack = this.sel.track) {
+  // Pastes copied keyframes or a clip at the playhead (or at `at`; sameTime = where the original was). Where to:
+  // the row clicked last (`targetTrack`), else the selected surface (the same parameters on it), else where they came from.
+  pasteTimeline(at = this.clock.time, targetTrack = this.sel.track, sameTime = false) {
     const cb = this.clipboard;
-    if (cb?.kind === 'clip') {
-      if (!this.show.timeline.tracks.includes(cb.track)) { this.status("The copied clip's track is gone."); return true; }
-      const copy = ops.duplicateClip(this.show, cb.track, cb.clip, false, at);
-      this.sel.keys = []; this.sel.key = null; this.sel.clip = { track: cb.track, clip: copy };
-    } else if (cb?.kind === 'keys') {
-      const target = targetTrack?.kind === 'param' && this.show.timeline.tracks.includes(targetTrack) ? targetTrack.path : null;
-      const added = ops.pasteKeys(this.show, cb, at, target);
+    if (cb?.kind !== 'clip' && cb?.kind !== 'keys') return false;
+    if (sameTime) at = cb.start;
+    const target = targetTrack?.kind === 'param' && this.show.timeline.tracks.includes(targetTrack) ? targetTrack.path : null;
+    const surface = !target && this.sel.surface ? this.sel.surface : 0;
+    if (cb.kind === 'clip') {
+      const r = ops.pasteClip(this.show, cb, at, { target, surface });
+      if (!r) { this.status('Nothing to paste onto: the surface that clip was for is gone.'); return true; }
+      this.sel.keys = []; this.sel.key = null; this.sel.clip = r.clip ? { track: r.track, clip: r.clip } : null; this.sel.track = r.track;
+      if (Math.abs(r.clip.start - at) > 1e-6) this.status('There was already a clip there, so it went in the next free spot.');
+    } else {
+      const added = ops.pasteKeys(this.show, cb, at, target, surface);
       if (!added.length) { this.status('Nothing to paste onto: the surface those keyframes were for is gone.'); return true; }
       this.setKeySelection(added);
-    } else return false;
+    }
     this.commit(); this.panels.refreshValues();
     return true;
   }
@@ -467,7 +473,7 @@ addEventListener('keydown', e => {
   // a slider or tick box that has the focus keeps its own keys (arrows, Space), but Delete, Undo, Copy... still work
   if (e.target.closest?.('input') && !del && !e.ctrlKey && !e.metaKey) return;
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === 'c') { if (!String(getSelection()) && (ed.hasTimelineSelection() ? ed.copyTimeline() : ed.copySurface())) e.preventDefault(); return; }   // keyframes / a clip if one is selected, else the surface
-  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === 'v') { if (ed.pasteTimeline() || ed.pasteSurface()) e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'v') { if ((e.shiftKey ? ed.pasteTimeline(undefined, undefined, true) : ed.pasteTimeline()) || (!e.shiftKey && ed.pasteSurface())) e.preventDefault(); return; }   // Shift: at the same time as the original
   if ((e.ctrlKey || e.metaKey) && k === 'z') { ed.undoStep(!e.shiftKey); e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { ed.undoStep(false); e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 's') { ed.saveProject(); e.preventDefault(); return; }

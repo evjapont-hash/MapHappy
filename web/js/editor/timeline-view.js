@@ -5,9 +5,10 @@
 // edge to make it taller or shorter. A parameter row shows its value's curve, and its keyframes sit on it: drag one
 // sideways to change its time and up or down to change its value (Shift: only the value; Ctrl: only the time).
 // Shift- or Ctrl-click keys to select several (or Shift-drag a box round them); they then move, copy and delete together.
-// Clips (as in the desktop app): drag a clip's header to move it, its right edge to stretch it (its keys loop);
+// Clips (as in the desktop app): drag a clip's header to move it, its right edge to stretch it (its keys loop), its left
+// edge to move its start (its keys stay where they are);
 // right-click a clip to duplicate it, ghost-copy it (the copy shares its keys) or delete it, an empty spot to make one. Scroll bars along the bottom and the right.
-import { keysOf, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack, moveAudioClip, trimAudioClip, addClip, duplicateClip, removeClip, moveClip, resizeClip, keyTimes, shiftKeys } from '../editor-ops.js';
+import { keysOf, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack, moveAudioClip, trimAudioClip, addClip, duplicateClip, removeClip, moveClip, resizeClip, trimClipStart, keyTimes, shiftKeys } from '../editor-ops.js';
 import { evaluateTrack } from '../timeline.js';
 import { parsePath, PARAMS, cleanValue, formatValue } from '../params.js';
 import { el } from './ui.js';
@@ -162,7 +163,7 @@ export class TimelineView {
           if (w > 40) { c.fillStyle = sel ? '#000' : C.text; c.font = '10px Inter, system-ui, sans-serif'; c.fillText(ellipsis(c, clip.ghost ? `${clip.name} (ghost)` : clip.name, w - 8), x0 + 4, r.y + 11); }
         }
         if (sel) { c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.strokeRect(x0 + 0.75, r.y + 2.75, w - 1.5, r.h - 5.5); }
-        c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(x1 - 2, r.y + 2, 2, r.h - 4);            // the right edge: drag to stretch
+        c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(x1 - 2, r.y + 2, 2, r.h - 4); c.fillRect(x0, r.y + 2, 2, r.h - 4);   // the edges: drag to stretch or trim
       }
       const cv = this.curve(r), tall = !!cv, yOf = cv?.yOf;
       if (tall) {                                                 // a tall row shows the value's curve, with the keys on it
@@ -235,15 +236,15 @@ export class TimelineView {
     if (ed.sel.keys?.length) return ed.sel.keys.some(x => x.key === k.key && x.clip === k.clip);
     return !!s && s.track === t && s.clip === k.clip && (s.key ? s.key === k.key : s.index === k.index);
   }
-  // A parameter clip under the point, and which part: its 'header' (move), right 'edge' (stretch) or 'body'.
+  // A parameter clip under the point, and which part: its 'header' (move), right 'edge' (stretch), left 'start' (trim) or 'body'.
   clipAt(pt) {
     if (pt.y < RULER || pt.y > this.view().H - SB || pt.x < LABEL_W) return null;
     const r = this.rows().find(r => r.track.kind === 'param' && pt.y >= r.y && pt.y < r.y + r.h);
     if (!r) return null;
     for (const clip of r.track.clips) {
       const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration);
-      if (pt.x < x0 || pt.x > x1 + 5) continue;
-      return { row: r, track: r.track, clip, part: Math.abs(pt.x - x1) <= 5 ? 'edge' : (r.h >= 30 && pt.y < r.y + HEAD) ? 'header' : 'body' };
+      if (pt.x < x0 - 5 || pt.x > x1 + 5) continue;
+      return { row: r, track: r.track, clip, part: Math.abs(pt.x - x1) <= 5 ? 'edge' : Math.abs(pt.x - x0) <= 5 ? 'start' : (r.h >= 30 && pt.y < r.y + HEAD) ? 'header' : 'body' };
     }
     return { row: r, track: r.track, clip: null, part: 'lane' };
   }
@@ -329,7 +330,7 @@ export class TimelineView {
     const hit = this.clipAt(p);
     if (hit?.clip && hit.part !== 'body' && e.button === 0) {       // a clip: its header moves it, its right edge stretches it
       ed.selectKey(null); ed.sel.clip = { track: hit.track, clip: hit.clip }; ed.sel.audio = null;
-      this.drag = hit.part === 'edge' ? { kind: 'clipResize' } : { kind: 'clipMove', grab: this.tOf(p.x) - hit.clip.start };
+      this.drag = hit.part === 'edge' ? { kind: 'clipResize' } : hit.part === 'start' ? { kind: 'clipTrim' } : { kind: 'clipMove', grab: this.tOf(p.x) - hit.clip.start };
       return;
     }
     if (e.button === 0) { ed.selectKey(null); ed.sel.audio = null; this.drag = { kind: 'scrub' }; ed.seek(this.tOf(p.x)); }
@@ -338,7 +339,7 @@ export class TimelineView {
     const p = this.local(e), ed = this.ed;
     if (!this.drag) {
       const a = this.audioAt(p), cl = !a && this.clipAt(p);
-      this.canvas.style.cursor = this.edgeAt(p) ? 'row-resize' : a ? (a.part === 'body' ? 'grab' : 'ew-resize') : cl?.clip && cl.part === 'edge' ? 'ew-resize' : cl?.clip && cl.part === 'header' ? 'grab' : 'default';
+      this.canvas.style.cursor = this.edgeAt(p) ? 'row-resize' : a ? (a.part === 'body' ? 'grab' : 'ew-resize') : cl?.clip && (cl.part === 'edge' || cl.part === 'start') ? 'ew-resize' : cl?.clip && cl.part === 'header' ? 'grab' : 'default';
       return;
     }
     if (this.drag.kind === 'box') {
@@ -352,7 +353,7 @@ export class TimelineView {
       ed.setKeySelection(all);
       return;
     }
-    if (this.drag.kind === 'clipMove' || this.drag.kind === 'clipResize') {
+    if (this.drag.kind === 'clipMove' || this.drag.kind === 'clipResize' || this.drag.kind === 'clipTrim') {
       const sc = ed.sel.clip;
       if (!sc) return;
       if (this.drag.kind === 'clipMove') {
@@ -362,7 +363,8 @@ export class TimelineView {
       } else {
         let t = this.tOf(p.x);
         if (ed.snap && !e.altKey) t = snapTime(ed.show, t, 8 / this.pps);
-        resizeClip(ed.show, sc.track, sc.clip, t - sc.clip.start);
+        if (this.drag.kind === 'clipTrim') trimClipStart(ed.show, sc.track, sc.clip, t);
+        else resizeClip(ed.show, sc.track, sc.clip, t - sc.clip.start);
       }
       this.drag.moved = true; ed.touched();
       return;
@@ -431,7 +433,8 @@ export class TimelineView {
     const p = this.local(e), ed = this.ed, { row, key } = this.keyAt(p), hit = key ? null : this.clipAt(p), time = this.tOf(p.x);
     const items = [], done = () => { ed.commit(); ed.refreshPanels(); };
     const canPaste = ed.clipboard?.kind === 'keys' || ed.clipboard?.kind === 'clip';
-    const paste = tr => ['Paste here', () => { ed.pasteTimeline(ed.snap ? snapTime(ed.show, time, 8 / this.pps) : time, tr); }];
+    const paste = tr => [['Paste here', () => { ed.pasteTimeline(ed.snap ? snapTime(ed.show, time, 8 / this.pps) : time, tr); }],
+                         ['Paste at the same time as the copy', () => { ed.pasteTimeline(0, tr, true); }]];
     if (key) {
       const item = { track: row.track, clip: key.clip, key: key.key };
       if (!ed.selectedKeys().some(x => x.key === key.key)) ed.setKeySelection([item]);
@@ -439,14 +442,14 @@ export class TimelineView {
       for (const [v, l] of [['smooth', 'Smooth'], ['linear', 'Linear'], ['hold', 'Hold (jump)']])
         items.push([(sel.every(x => x.key.interp === v) ? '● ' : '○ ') + l, () => { for (const x of sel) x.key.interp = v; done(); }]);
       items.push(null, [many ? `Copy ${sel.length} keyframes` : 'Copy', () => ed.copyTimeline()]);
-      if (canPaste) items.push(paste(row.track));
+      if (canPaste) items.push(...paste(row.track));
       items.push([many ? `Delete ${sel.length} keyframes` : 'Delete keyframe', () => { ed.deleteSelected(); ed.refreshPanels(); }]);
     } else if (hit?.clip) {
       ed.selectKey(null); ed.sel.clip = { track: hit.track, clip: hit.clip }; ed.sel.track = hit.track;
       items.push(['Duplicate', () => { ed.sel.clip = { track: hit.track, clip: duplicateClip(ed.show, hit.track, hit.clip, false) }; done(); }],
                  ['Ghost copy (shares its keyframes)', () => { ed.sel.clip = { track: hit.track, clip: duplicateClip(ed.show, hit.track, hit.clip, true) }; done(); }],
                  ['Copy', () => ed.copyTimeline()]);
-      if (canPaste) items.push(paste(hit.track));
+      if (canPaste) items.push(...paste(hit.track));
       items.push(null, ['Delete clip', () => { removeClip(ed.show, hit.track, hit.clip); ed.sel.clip = null; done(); }]);
     } else if (hit) {
       ed.sel.track = hit.track;
@@ -454,7 +457,7 @@ export class TimelineView {
         const t = ed.snap ? snapTime(ed.show, time, 8 / this.pps) : time, v = evaluateTrack(hit.track, t) ?? 0, c = addClip(ed.show, hit.track, t, v);
         if (c) { ed.selectKey(null); ed.sel.clip = { track: hit.track, clip: c }; done(); } else ed.status('There is no room for a clip there.');
       }]);
-      if (canPaste) items.push(paste(hit.track));
+      if (canPaste) items.push(...paste(hit.track));
     } else return;
     const menu = el('div', { class: 'menu', style: { left: `${e.clientX}px`, top: `${e.clientY}px` } },
       ...items.map(it => it ? el('button', { text: it[0], on: { click: () => { close(); it[1](); } } }) : el('div', { class: 'menu-sep' })));
