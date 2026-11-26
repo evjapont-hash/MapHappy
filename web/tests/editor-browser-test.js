@@ -97,8 +97,18 @@ try {
   // ---- the timeline
   const tl = doc.getElementById('timeline'), tv = ed.timelineView;
   const row = tv.rows().find(r => r.track === track);
-  await drag(tl, { x: tv.xOf(2), y: row.y + row.h / 2 }, { x: tv.xOf(3), y: row.y + row.h / 2 });
-  expect('dragging a keyframe on the timeline moves it', near(track.clips[0].keys[1].t, 3, 0.05));
+  const ky = () => tv.keyY(row, { key: track.clips[0].keys[1] });
+  expect('a parameter row shows its curve, with the keys on it', !!tv.curve(row) && near(ky(), row.y + row.h - 8, 0.5));
+  await drag(tl, { x: tv.xOf(2), y: ky() }, { x: tv.xOf(3), y: ky() });
+  expect('dragging a keyframe sideways changes its time, not its value', near(track.clips[0].keys[1].t, 3, 0.05) && track.clips[0].keys[1].v === 0);
+  { const per = tv.curve(row).perPx, y0 = ky();
+    await drag(tl, { x: tv.xOf(3), y: y0 }, { x: tv.xOf(3), y: y0 - 0.6 / per });
+    expect('dragging it up raises its value (opacity 0% -> 60%)', near(track.clips[0].keys[1].v, 0.6, 0.02) && near(track.clips[0].keys[1].t, 3, 0.05));
+    await drag(tl, { x: tv.xOf(3), y: ky() }, { x: tv.xOf(3), y: ky() + 5 / per });
+    expect('...and it stays within the setting\'s range', track.clips[0].keys[1].v === 0);
+    pointer(tl, 'pointerdown', tv.xOf(3), ky()); pointer(tl, 'pointermove', tv.xOf(3.5), ky() - 0.3 / per, { shiftKey: true }); pointer(tl, 'pointerup', 0, 0); await frames(1);
+    expect('with Shift, only the value changes', near(track.clips[0].keys[1].t, 3, 0.05) && near(track.clips[0].keys[1].v, 0.3, 0.02));
+    track.clips[0].keys[1].v = 0; ed.commit(); }
   pointer(tl, 'pointerdown', tv.xOf(4), 10); pointer(tl, 'pointerup', tv.xOf(4), 10); await frames(1);
   expect('clicking the ruler moves the playhead', near(ed.clock.time, 4, 0.05));
   doc.body.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'm', code: 'KeyM', bubbles: true })); await frames(1);

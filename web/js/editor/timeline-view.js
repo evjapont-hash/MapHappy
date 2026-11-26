@@ -2,13 +2,14 @@
 // parameter with its keyframes. Click or drag the ruler to move the playhead; drag a keyframe to move it (it snaps
 // to beats and markers); double-click a row to add a keyframe; right-click one for its curve or to delete it.
 // Mouse wheel zooms, Shift + wheel scrolls; over the track names the wheel scrolls up and down. Drag a row's bottom
-// edge to make it taller (a tall parameter row shows its curve). Scroll bars along the bottom and the right.
+// edge to make it taller or shorter. A parameter row shows its value's curve, and its keyframes sit on it: drag one
+// sideways to change its time and up or down to change its value (Shift: only the value; Ctrl: only the time). Scroll bars along the bottom and the right.
 import { keysOf, moveKey, deleteKey, setKey, snapTime, beatGrid, trackLabel, removeTrack, moveAudioClip, trimAudioClip } from '../editor-ops.js';
 import { evaluateTrack } from '../timeline.js';
-import { parsePath, PARAMS } from '../params.js';
+import { parsePath, PARAMS, cleanValue, formatValue } from '../params.js';
 import { el } from './ui.js';
 
-const RULER = 24, AUDIO_H = 64, ROW_H = 24, LABEL_W = 190, SB = 12, EDGE = 4;
+const RULER = 24, AUDIO_H = 64, ROW_H = 56, LABEL_W = 190, SB = 12, EDGE = 4;
 const HEIGHTS = 'maphappy-editor-row-heights';
 const MIN_H = { audio: 32, param: 18 }, MAX_H = 480;
 const C = { bg: '#000', row: '#0a0a0a', rowAlt: '#050505', line: '#1f1f1f', text: '#9a9a9a', dim: '#8a8a8a', accent: '#fff', ruler: '#0a0a0a', labels: '#0a0a0a',
@@ -39,6 +40,14 @@ export class TimelineView {
     return out;
   }
   rowKey(t) { return t.kind === 'audio' ? `audio:${t.id}` : t.path; }
+  // A parameter row tall enough to show its curve: its parameter, and where a value is drawn. null for a short row (or an on/off one).
+  curve(r) {
+    const d = r.track.kind === 'param' ? PARAMS.get(parsePath(r.track.path)?.key) : null;
+    if (!d || d.isBool || r.h < 40) return null;
+    const span = (d.max - d.min) || 1, top = r.y + 8, h = r.h - 16;
+    return { d, yOf: v => top + h - h * Math.max(0, Math.min(1, (v - d.min) / span)), perPx: span / h };
+  }
+  keyY(r, k) { const c = this.curve(r); return c ? c.yOf(k.key.v) : r.y + r.h / 2; }
   heightOf(t) { return this.heights.get(this.rowKey(t)) ?? (t.kind === 'audio' ? AUDIO_H : ROW_H); }
   setHeight(t, h) { this.heights.set(this.rowKey(t), Math.round(Math.max(MIN_H[t.kind], Math.min(MAX_H, h)))); }
   saveHeights() { try { localStorage.setItem(HEIGHTS, JSON.stringify(Object.fromEntries(this.heights))); } catch { /* storage blocked */ } }
@@ -139,19 +148,23 @@ export class TimelineView {
         continue;
       }
       for (const clip of t.clips) { const x0 = this.xOf(clip.start), x1 = this.xOf(clip.start + clip.duration); c.fillStyle = C.clip; c.fillRect(x0, r.y + 3, Math.max(2, x1 - x0), r.h - 6); }
-      const d = PARAMS.get(parsePath(t.path)?.key), tall = d && r.h >= 40 && !d.isBool;
-      const yOf = v => r.y + r.h - 8 - (r.h - 16) * Math.max(0, Math.min(1, (v - d.min) / ((d.max - d.min) || 1)));
+      const cv = this.curve(r), tall = !!cv, yOf = cv?.yOf;
       if (tall) {                                                 // a tall row shows the value's curve, with the keys on it
         c.beginPath();
         for (let x = Math.max(LABEL_W, this.xOf(t.clips[0]?.start ?? 0)); x <= W - SB; x += 2) { const y = yOf(evaluateTrack(t, this.tOf(x))); x === Math.max(LABEL_W, this.xOf(t.clips[0]?.start ?? 0)) ? c.moveTo(x, y) : c.lineTo(x, y); }
         c.strokeStyle = t.muted ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.55)'; c.lineWidth = 1.5; c.stroke();
       }
       for (const k of keysOf(t)) {
-        const x = this.xOf(k.time), y = tall ? yOf(k.key.v) : r.y + r.h / 2, sel = this.isSelected(t, k);
+        const x = this.xOf(k.time), y = this.keyY(r, k), sel = this.isSelected(t, k);
         c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x + 6, y); c.lineTo(x, y + 6); c.lineTo(x - 6, y); c.closePath();
         c.fillStyle = t.muted ? C.dim : sel ? C.keySel : C.key; c.fill();
         if (sel) { c.beginPath(); c.moveTo(x, y - 9.5); c.lineTo(x + 9.5, y); c.lineTo(x, y + 9.5); c.lineTo(x - 9.5, y); c.closePath(); c.strokeStyle = C.keySel; c.lineWidth = 1.5; c.stroke(); }   // selected: a ring
         if (k.key.interp === 'hold') { c.fillStyle = C.bg; c.fillRect(x - 1.5, y - 1.5, 3, 3); }
+        if (sel && this.drag?.kind === 'key' && tall) {          // while dragging: its value
+          const txt = formatValue(cv.d, k.key.v); c.font = '11px Inter, system-ui, sans-serif';
+          const w = c.measureText(txt).width + 8, ty = y - 14 < r.y + 2 ? y + 12 : y - 22;
+          c.fillStyle = '#fff'; c.fillRect(x + 10, ty, w, 16); c.fillStyle = '#000'; c.fillText(txt, x + 14, ty + 12);
+        }
       }
     }
     // markers and playhead
@@ -218,10 +231,9 @@ export class TimelineView {
     for (const r of this.rows()) {
       if (r.track.kind !== 'param' || pt.y < r.y || pt.y >= r.y + r.h) continue;
       let best = null, bd = 8;
-      const d0 = PARAMS.get(parsePath(r.track.path)?.key), tall = d0 && r.h >= 40 && !d0.isBool;
+      const tall = !!this.curve(r);
       for (const k of keysOf(r.track)) {
-        const ky = tall ? r.y + r.h - 8 - (r.h - 16) * Math.max(0, Math.min(1, (k.key.v - d0.min) / ((d0.max - d0.min) || 1))) : r.y + r.h / 2;
-        const d = Math.abs(this.xOf(k.time) - pt.x) + (tall ? Math.max(0, Math.abs(ky - pt.y) - 6) : 0);
+        const d = Math.abs(this.xOf(k.time) - pt.x) + (tall ? Math.max(0, Math.abs(this.keyY(r, k) - pt.y) - 6) : 0);
         if (d < bd) { bd = d; best = k; }
       }
       return { row: r, key: best };
@@ -263,8 +275,9 @@ export class TimelineView {
     }
     const { key } = this.keyAt(p);
     if (key && e.button === 0) {
-      ed.selectKey({ track: this.keyAt(p).row.track, clip: key.clip, index: key.index });
-      this.drag = { kind: 'key', grab: this.tOf(p.x) - key.time };
+      const row = this.keyAt(p).row;
+      ed.selectKey({ track: row.track, clip: key.clip, index: key.index });
+      this.drag = { kind: 'key', grab: this.tOf(p.x) - key.time, time: key.time, y: p.y, v: key.key.v, curve: this.curve(row), path: parsePath(row.track.path) };
       return;
     }
     if (e.button === 0) { ed.selectKey(null); ed.sel.audio = null; this.drag = { kind: 'scrub' }; ed.seek(this.tOf(p.x)); }
@@ -288,10 +301,17 @@ export class TimelineView {
     if (this.drag.kind === 'scrub') { ed.seek(this.tOf(Math.max(LABEL_W, p.x))); return; }
     const s = ed.sel.key;
     if (this.drag.kind === 'key' && s) {
-      let t = this.tOf(p.x) - this.drag.grab;
-      if (ed.snap && !e.altKey) t = snapTime(ed.show, t, 8 / this.pps);
+      const d = this.drag;
+      let t = e.shiftKey ? d.time : this.tOf(p.x) - d.grab;         // Shift: keep its time (change only the value)
+      if (ed.snap && !e.altKey && !e.shiftKey) t = snapTime(ed.show, t, 8 / this.pps);
       t = Math.max(s.clip.start, t);
       s.index = moveKey(ed.show, s.clip, s.index, t);
+      if (d.curve && !e.ctrlKey && !e.metaKey) {                    // up and down: its value (Ctrl: keep the value)
+        let v = d.v + (d.y - p.y) * d.curve.perPx;
+        if (d.curve.d.format === 'choice') v = Math.round(v);
+        const c = cleanValue(d.path.key, v);
+        if (c !== null) s.clip.keys[s.index].v = c;
+      }
       this.drag.moved = true;
       ed.touched();
     }
